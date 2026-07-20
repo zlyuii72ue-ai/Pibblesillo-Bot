@@ -1,4 +1,5 @@
 require('dotenv').config();
+const http = require('http'); // Módulo nativo para el servidor HTTP 24/7
 const { 
   Client, 
   GatewayIntentBits, 
@@ -11,8 +12,22 @@ const {
   AuditLogEvent,
   Partials
 } = require('discord.js');
-const fs = require('fs'); // Librería nativa de Node.js para leer/escribir archivos
+const fs = require('fs');
 
+// ==========================================
+// 🌐 SERVIDOR HTTP PARA MANTENER EL BOT 24/7
+// ==========================================
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('🤖 Bot de Discord activo y funcionando 24/7!');
+}).listen(PORT, () => {
+  console.log(`[24/7 System] Servidor web listo y escuchando en el puerto ${PORT}`);
+});
+
+// ==========================================
+// CONFIGURACIÓN Y CREDENCIALES
+// ==========================================
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CLIENT_ID = process.env.CLIENT_ID; 
 
@@ -21,37 +36,51 @@ if (!TOKEN || !CLIENT_ID) {
     process.exit(1);
 }
 
-// Archivo donde guardaremos qué canal de logs usa cada servidor
+// 🛡️ SISTEMA ANTI-CRASH (Evita caídas repentinas)
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Anti-Crash] Error no capturado:', reason);
+});
+process.on('uncaughtException', (err, origin) => {
+    console.error('[Anti-Crash] Excepción no capturada:', err);
+});
+
+// BASE DE DATOS LOCAL
 const logFile = './logChannels.json';
 
-// Funciones para guardar y leer la configuración
 function saveLogChannel(guildId, channelId) {
     let data = {};
-    if (fs.existsSync(logFile)) data = JSON.parse(fs.readFileSync(logFile, 'utf8'));
-    data[guildId] = channelId;
-    fs.writeFileSync(logFile, JSON.stringify(data, null, 2));
+    try {
+        if (fs.existsSync(logFile)) data = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+        data[guildId] = channelId;
+        fs.writeFileSync(logFile, JSON.stringify(data, null, 2));
+    } catch (e) {
+        console.error("Error al guardar canal de log:", e);
+    }
 }
 
 function getLogChannel(guildId) {
-    if (fs.existsSync(logFile)) {
-        const data = JSON.parse(fs.readFileSync(logFile, 'utf8'));
-        return data[guildId];
+    try {
+        if (fs.existsSync(logFile)) {
+            const data = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+            return data[guildId];
+        }
+    } catch (e) {
+        return null;
     }
     return null;
 }
 
-// Inicializamos el bot con los Intents necesarios para leer TODO
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // Para leer contenido de mensajes
-    GatewayIntentBits.GuildModeration // Para leer bans, kicks y mutes
+    GatewayIntentBits.MessageContent, 
+    GatewayIntentBits.GuildModeration 
   ],
-  partials: [Partials.Message, Partials.Channel, Partials.User] // Para detectar mensajes antiguos
+  partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
 
-// Definimos nuestros comandos
+// COMANDOS DEL BOT
 const commands = [
   {
     name: 'embed',
@@ -88,13 +117,13 @@ const commands = [
   {
     name: 'canal-setup',
     description: 'Configura el canal donde se enviarán los registros/logs',
-    default_member_permissions: String(PermissionFlagsBits.Administrator), // Solo admins
+    default_member_permissions: String(PermissionFlagsBits.Administrator),
     options: [
       {
         name: 'canal',
         description: 'Selecciona el canal de texto para los logs',
         type: ApplicationCommandOptionType.Channel,
-        channel_types: [ChannelType.GuildText], // Solo permite canales de texto
+        channel_types: [ChannelType.GuildText],
         required: true,
       }
     ],
@@ -112,9 +141,8 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
   }
 })();
 
-// INTERACCIONES CON COMANDOS Y AUTOCOMPLETADO
+// INTERACCIONES
 client.on('interactionCreate', async interaction => {
-  
   if (interaction.isAutocomplete()) {
     const focusedValue = interaction.options.getFocused();
     const opcionesColor = [
@@ -134,7 +162,6 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  // Comando /embed
   if (interaction.commandName === 'embed') {
     const titulo = interaction.options.getString('titulo');
     const descripcion = interaction.options.getString('descripcion');
@@ -148,33 +175,28 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({ embeds: [embed] });
   }
 
-  // Comando /canal-setup
   if (interaction.commandName === 'canal-setup') {
     const canal = interaction.options.getChannel('canal');
     saveLogChannel(interaction.guildId, canal.id);
     
     await interaction.reply({ 
       content: `✅ ¡Listo! A partir de ahora enviaré todos los registros de moderación y mensajes borrados en ${canal}`, 
-      ephemeral: true // Mensaje visible solo para quien usó el comando
+      ephemeral: true 
     });
   }
 });
 
-// ==========================================
-// SISTEMA DE LOGS (EVENTOS)
-// ==========================================
-
-// 1. MENSAJES BORRADOS
+// EVENTOS DE LOGS
 client.on('messageDelete', async (message) => {
-    if (!message.guild) return; // Ignorar mensajes en MD
+    if (!message.guild) return;
     const logChannelId = getLogChannel(message.guild.id);
-    if (!logChannelId) return; // Si no han configurado el canal, no hacer nada
+    if (!logChannelId) return;
 
     const logChannel = message.guild.channels.cache.get(logChannelId);
     if (!logChannel) return;
 
-    const autor = message.author ? message.author.tag : 'Desconocido (El bot no alcanzó a leerlo)';
-    const contenido = message.content || 'Sin texto (probablemente una imagen o embed)';
+    const autor = message.author ? message.author.tag : 'Desconocido';
+    const contenido = message.content || 'Sin texto (imagen o embed)';
 
     const embed = new EmbedBuilder()
         .setTitle('🗑️ Mensaje Borrado')
@@ -189,7 +211,6 @@ client.on('messageDelete', async (message) => {
     logChannel.send({ embeds: [embed] }).catch(() => {});
 });
 
-// 2. BANS, KICKS Y MUTES (TIMEOUTS)
 client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
     const logChannelId = getLogChannel(guild.id);
     if (!logChannelId) return;
@@ -199,45 +220,38 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
     const { action, executor, target, reason, changes } = auditLog;
     const embed = new EmbedBuilder().setTimestamp();
 
-    // Expulsiones (Kicks)
     if (action === AuditLogEvent.MemberKick) {
         embed.setTitle('👢 Usuario Expulsado')
              .setColor('#FFA500')
-             .setDescription(`**Usuario:** ${target.tag}\n**Moderador:** ${executor.tag}\n**Razón:** ${reason || 'No especificada'}`);
+             .setDescription(`**Usuario:** ${target?.tag || 'Desconocido'}\n**Moderador:** ${executor?.tag || 'Desconocido'}\n**Razón:** ${reason || 'No especificada'}`);
         logChannel.send({ embeds: [embed] }).catch(() => {});
     }
-    
-    // Baneos
     else if (action === AuditLogEvent.MemberBanAdd) {
         embed.setTitle('🔨 Usuario Baneado')
              .setColor('#FF0000')
-             .setDescription(`**Usuario:** ${target.tag}\n**Moderador:** ${executor.tag}\n**Razón:** ${reason || 'No especificada'}`);
+             .setDescription(`**Usuario:** ${target?.tag || 'Desconocido'}\n**Moderador:** ${executor?.tag || 'Desconocido'}\n**Razón:** ${reason || 'No especificada'}`);
         logChannel.send({ embeds: [embed] }).catch(() => {});
     }
-
-    // Mutes (Timeouts)
     else if (action === AuditLogEvent.MemberUpdate) {
         const timeoutChange = changes.find(c => c.key === 'communication_disabled_until');
         if (timeoutChange) {
             if (timeoutChange.new) {
-                // Fue silenciado
                 const time = Math.floor(new Date(timeoutChange.new).getTime() / 1000);
                 embed.setTitle('🔇 Usuario Silenciado (Timeout)')
                      .setColor('#FFFF00')
-                     .setDescription(`**Usuario:** ${target.tag}\n**Moderador:** ${executor.tag}\n**Duración:** Hasta <t:${time}:R>\n**Razón:** ${reason || 'No especificada'}`);
+                     .setDescription(`**Usuario:** ${target?.tag || 'Desconocido'}\n**Moderador:** ${executor?.tag || 'Desconocido'}\n**Duración:** Hasta <t:${time}:R>\n**Razón:** ${reason || 'No especificada'}`);
             } else {
-                // Le quitaron el silencio
                 embed.setTitle('🔊 Silencio Removido')
                      .setColor('#00FF00')
-                     .setDescription(`**Usuario:** ${target.tag}\n**Moderador:** ${executor.tag}`);
+                     .setDescription(`**Usuario:** ${target?.tag || 'Desconocido'}\n**Moderador:** ${executor?.tag || 'Desconocido'}`);
             }
             logChannel.send({ embeds: [embed] }).catch(() => {});
         }
     }
 });
 
-client.once('ready', () => {
-  console.log(`¡Listo! El bot ${client.user.tag} está encendido y funcionando con logs.`);
+client.once('clientReady', () => {
+  console.log(`¡Listo! El bot ${client.user.tag} está encendido y funcionando con logs 24/7.`);
 });
 
 client.login(TOKEN);
