@@ -14,42 +14,27 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 
-// ==========================================
-// 🌐 SERVIDOR HTTP PARA MANTENER EL BOT 24/7
-// ==========================================
+// 1. SERVIDOR WEB PARA MANTENERLO 24/7 EN RAILWAY
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot de Discord activo y funcionando 24/7 sin fallos!');
-}).listen(PORT, () => {
-  console.log(`[Servidor Web] Activo en el puerto ${PORT} para mantener el bot despierto.`);
-});
+  res.end('🤖 Bot activo 24/7 sin fallos!');
+}).listen(PORT, () => console.log(`[HTTP] Servidor listo en el puerto ${PORT}`));
 
-// ==========================================
-// CONFIGURACIÓN Y CREDENCIALES
-// ==========================================
+// 2. CONFIGURACIÓN Y CREDENCIALES
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CLIENT_ID = process.env.CLIENT_ID; 
 
 if (!TOKEN || !CLIENT_ID) {
-    console.error("❌ Faltan las variables de entorno DISCORD_TOKEN o CLIENT_ID en Railway.");
+    console.error("❌ ERROR: Agrega DISCORD_TOKEN y CLIENT_ID en las variables de Railway.");
     process.exit(1);
 }
 
-// 🛡️ SISTEMA ANTI-CRASH TOTAL (Evita que el bot se apague por errores)
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('🛡️ [Anti-Crash] Promesa rechazada no manejada:', reason);
-});
-process.on('uncaughtException', (err, origin) => {
-    console.error('🛡️ [Anti-Crash] Excepción no capturada:', err);
-});
-process.on('uncaughtExceptionMonitor', (err, origin) => {
-    console.error('🛡️ [Anti-Crash] Monitor de excepción no capturada:', err);
-});
+// 3. ESCUDO ANTI-CRASH (Evita que se apague por errores)
+process.on('unhandledRejection', reason => console.error('🛡️ [Anti-Crash]:', reason));
+process.on('uncaughtException', err => console.error('🛡️ [Anti-Crash]:', err));
 
-// ==========================================
-// BASE DE DATOS LOCAL PARA LOGS
-// ==========================================
+// 4. ALMACENAMIENTO DE LOGS
 const logFile = './logChannels.json';
 
 function saveLogChannel(guildId, channelId) {
@@ -58,9 +43,7 @@ function saveLogChannel(guildId, channelId) {
         if (fs.existsSync(logFile)) data = JSON.parse(fs.readFileSync(logFile, 'utf8'));
         data[guildId] = channelId;
         fs.writeFileSync(logFile, JSON.stringify(data, null, 2));
-    } catch (e) {
-        console.error("⚠️ Error al guardar el canal de logs:", e);
-    }
+    } catch (e) { console.error(e); }
 }
 
 function getLogChannel(guildId) {
@@ -69,94 +52,73 @@ function getLogChannel(guildId) {
             const data = JSON.parse(fs.readFileSync(logFile, 'utf8'));
             return data[guildId];
         }
-    } catch (e) {
-        return null;
-    }
+    } catch (e) { return null; }
     return null;
 }
 
-// ==========================================
-// INICIALIZACIÓN DEL BOT
-// ==========================================
+// 5. CLIENTE DE DISCORD CON INTENTS
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // ⚠️ RECUERDA ACTIVAR ESTO EN EL DISCORD DEVELOPER PORTAL
+    GatewayIntentBits.MessageContent, // Activar en Discord Developer Portal -> Bot -> Intents
     GatewayIntentBits.GuildModeration 
   ],
   partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
 
-// ==========================================
-// DEFINICIÓN DE COMANDOS
-// ==========================================
+// 6. COMANDOS
 const commands = [
   {
     name: 'embed',
     description: 'Crea un mensaje embed súper personalizado',
     default_member_permissions: String(PermissionFlagsBits.Administrator),
     options: [
-      {
-        name: 'titulo',
-        description: 'El título que llevará el embed',
-        type: ApplicationCommandOptionType.String,
-        required: true,
-      },
-      {
-        name: 'descripcion',
-        description: 'El texto principal de tu embed',
-        type: ApplicationCommandOptionType.String,
-        required: true,
-      },
-      {
-        name: 'color',
-        description: 'Elige un color de la lista o escribe tu propio Hex',
-        type: ApplicationCommandOptionType.String,
-        autocomplete: true, 
-        required: false, 
-      },
-      {
-        name: 'foto',
-        description: 'Sube una imagen directa',
-        type: ApplicationCommandOptionType.Attachment,
-        required: false, 
-      }
+      { name: 'titulo', description: 'Título del embed', type: ApplicationCommandOptionType.String, required: true },
+      { name: 'descripcion', description: 'Texto principal del embed', type: ApplicationCommandOptionType.String, required: true },
+      { name: 'color', description: 'Elige un color o escribe un Hex (#FF0000)', type: ApplicationCommandOptionType.String, autocomplete: true, required: false },
+      { name: 'foto', description: 'Sube una imagen', type: ApplicationCommandOptionType.Attachment, required: false }
     ],
   },
   {
     name: 'canalsetup',
-    description: 'Configura el canal donde se enviarán los registros/logs',
+    description: 'Configura el canal para enviar los registros/logs',
     default_member_permissions: String(PermissionFlagsBits.Administrator),
     options: [
-      {
-        name: 'canal',
-        description: 'Selecciona el canal de texto para los logs',
-        type: ApplicationCommandOptionType.Channel,
-        channel_types: [ChannelType.GuildText],
-        required: true,
-      }
+      { name: 'canal', description: 'Canal de texto para los logs', type: ApplicationCommandOptionType.Channel, channel_types: [ChannelType.GuildText], required: true }
     ],
   }
 ];
 
+// 7. REGISTRO DE COMANDOS EN DISCORD
 const rest = new REST({ version: '10' }).setToken(TOKEN);
-(async () => {
-  try {
-    console.log('⏳ Registrando comandos (/embed, /canalsetup)...');
-    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log('✅ ¡Comandos registrados con éxito!');
-  } catch (error) {
-    console.error('❌ Hubo un error al registrar los comandos:', error);
-  }
-})();
 
-// ==========================================
-// MANEJO DE INTERACCIONES (COMANDOS)
-// ==========================================
+client.once('clientReady', async () => {
+  console.log(`🚀 Bot conectado como: ${client.user.tag}`);
+  
+  // Registra los comandos al instante en CADA servidor donde esté el bot
+  try {
+    const guildIds = client.guilds.cache.map(guild => guild.id);
+    for (const guildId of guildIds) {
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commands });
+    }
+    console.log('✅ ¡Comanditos /embed y /canalsetup registrados al instante!');
+  } catch (error) {
+    console.error('❌ Error registrando comandos:', error);
+  }
+});
+
+// Registrar comandos si entra a un servidor nuevo
+client.on('guildCreate', async (guild) => {
+  try {
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guild.id), { body: commands });
+  } catch (e) {}
+});
+
+// 8. MANEJO DE INTERACCIONES Y COMANDOS
 client.on('interactionCreate', async interaction => {
   
-  // 1. AUTOCOMPLETADO DE COLORES
+  // Autocompletado de Colores
   if (interaction.isAutocomplete()) {
     const focusedValue = interaction.options.getFocused();
     const opcionesColor = [
@@ -177,9 +139,9 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  // 2. EJECUCIÓN DE COMANDOS CHAT INPUT
   if (!interaction.isChatInputCommand()) return;
 
+  // Ejecución de /embed
   if (interaction.commandName === 'embed') {
     const titulo = interaction.options.getString('titulo');
     const descripcion = interaction.options.getString('descripcion');
@@ -187,35 +149,27 @@ client.on('interactionCreate', async interaction => {
     const foto = interaction.options.getAttachment('foto');
 
     const embed = new EmbedBuilder().setTitle(titulo).setDescription(descripcion);
-    
-    // Evitar fallos si introducen un código de color inválido
-    try { 
-        embed.setColor(color); 
-    } catch (e) { 
-        embed.setColor('#2B2D31'); 
-    }
-    
+    try { embed.setColor(color); } catch (e) { embed.setColor('#2B2D31'); }
     if (foto) embed.setImage(foto.url);
 
     await interaction.reply({ embeds: [embed] }).catch(() => {});
   }
 
+  // Ejecución de /canalsetup
   if (interaction.commandName === 'canalsetup') {
     const canal = interaction.options.getChannel('canal');
     saveLogChannel(interaction.guildId, canal.id);
     
     await interaction.reply({ 
-      content: `✅ ¡Listo! A partir de ahora enviaré todos los registros de moderación y mensajes borrados en ${canal}`, 
+      content: `✅ ¡Registros activados en ${canal}!`, 
       ephemeral: true 
     }).catch(() => {});
   }
 });
 
-// ==========================================
-// EVENTOS DE LOGS (BORRADO, BANS, KICKS, MUTES)
-// ==========================================
+// 9. EVENTOS DE LOGS
 client.on('messageDelete', async (message) => {
-    if (!message.guild || message.author?.bot) return; // Ignorar mensajes en MD o de otros bots para evitar spam
+    if (!message.guild || message.author?.bot) return;
 
     const logChannelId = getLogChannel(message.guild.id);
     if (!logChannelId) return;
@@ -223,16 +177,13 @@ client.on('messageDelete', async (message) => {
     const logChannel = message.guild.channels.cache.get(logChannelId);
     if (!logChannel) return;
 
-    const autor = message.author ? message.author.tag : 'Desconocido';
-    const contenido = message.content || 'Sin texto (imagen o embed)';
-
     const embed = new EmbedBuilder()
         .setTitle('🗑️ Mensaje Borrado')
         .setColor('#FF5555')
         .addFields(
-            { name: 'Autor', value: autor, inline: true },
+            { name: 'Autor', value: message.author ? message.author.tag : 'Desconocido', inline: true },
             { name: 'Canal', value: `<#${message.channel.id}>`, inline: true },
-            { name: 'Contenido', value: contenido.substring(0, 1024) } // Límite de caracteres de Discord
+            { name: 'Contenido', value: message.content || 'Sin texto (imagen o embed)' }
         )
         .setTimestamp();
 
@@ -266,7 +217,7 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
         if (timeoutChange) {
             if (timeoutChange.new) {
                 const time = Math.floor(new Date(timeoutChange.new).getTime() / 1000);
-                embed.setTitle('🔇 Usuario Silenciado (Timeout)')
+                embed.setTitle('🔇 Usuario Silenciado')
                      .setColor('#FFFF00')
                      .setDescription(`**Usuario:** ${target?.tag || 'Desconocido'}\n**Moderador:** ${executor?.tag || 'Desconocido'}\n**Duración:** Hasta <t:${time}:R>\n**Razón:** ${reason || 'No especificada'}`);
             } else {
@@ -279,11 +230,5 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
     }
 });
 
-// ==========================================
-// ARRANQUE DEL BOT
-// ==========================================
-client.once('clientReady', () => {
-  console.log(`🚀 ¡Listo! El bot ${client.user.tag} está en línea, blindado contra fallos y funcionando 24/7.`);
-});
-
+// 10. INICIAR BOT
 client.login(TOKEN);
