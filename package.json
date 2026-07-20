@@ -1,0 +1,13 @@
+{
+  "name": "discord-embed-bot",
+  "version": "1.0.0",
+  "description": "Bot de Discord para crear embeds - Optimizado para Railway",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.0",
+    "dotenv": "^16.4.5"
+  }
+}
