@@ -1,5 +1,5 @@
 require('dotenv').config();
-const http = require('http'); // Módulo para el servidor HTTP 24/7
+const http = require('http');
 const { 
   Client, 
   GatewayIntentBits, 
@@ -20,9 +20,9 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot de Discord activo y funcionando 24/7!');
+  res.end('🤖 Bot de Discord activo y funcionando 24/7 sin fallos!');
 }).listen(PORT, () => {
-  console.log(`[24/7 System] Servidor web listo y escuchando en el puerto ${PORT}`);
+  console.log(`[Servidor Web] Activo en el puerto ${PORT} para mantener el bot despierto.`);
 });
 
 // ==========================================
@@ -32,19 +32,24 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID; 
 
 if (!TOKEN || !CLIENT_ID) {
-    console.error("Faltan las variables de entorno DISCORD_TOKEN o CLIENT_ID.");
+    console.error("❌ Faltan las variables de entorno DISCORD_TOKEN o CLIENT_ID en Railway.");
     process.exit(1);
 }
 
-// 🛡️ SISTEMA ANTI-CRASH (Evita caídas repentinas)
+// 🛡️ SISTEMA ANTI-CRASH TOTAL (Evita que el bot se apague por errores)
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('[Anti-Crash] Error no capturado:', reason);
+    console.error('🛡️ [Anti-Crash] Promesa rechazada no manejada:', reason);
 });
 process.on('uncaughtException', (err, origin) => {
-    console.error('[Anti-Crash] Excepción no capturada:', err);
+    console.error('🛡️ [Anti-Crash] Excepción no capturada:', err);
+});
+process.on('uncaughtExceptionMonitor', (err, origin) => {
+    console.error('🛡️ [Anti-Crash] Monitor de excepción no capturada:', err);
 });
 
-// BASE DE DATOS LOCAL
+// ==========================================
+// BASE DE DATOS LOCAL PARA LOGS
+// ==========================================
 const logFile = './logChannels.json';
 
 function saveLogChannel(guildId, channelId) {
@@ -54,7 +59,7 @@ function saveLogChannel(guildId, channelId) {
         data[guildId] = channelId;
         fs.writeFileSync(logFile, JSON.stringify(data, null, 2));
     } catch (e) {
-        console.error("Error al guardar canal de log:", e);
+        console.error("⚠️ Error al guardar el canal de logs:", e);
     }
 }
 
@@ -70,17 +75,22 @@ function getLogChannel(guildId) {
     return null;
 }
 
+// ==========================================
+// INICIALIZACIÓN DEL BOT
+// ==========================================
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, 
+    GatewayIntentBits.MessageContent, // ⚠️ RECUERDA ACTIVAR ESTO EN EL DISCORD DEVELOPER PORTAL
     GatewayIntentBits.GuildModeration 
   ],
   partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
 
-// COMANDOS DEL BOT
+// ==========================================
+// DEFINICIÓN DE COMANDOS
+// ==========================================
 const commands = [
   {
     name: 'embed',
@@ -115,7 +125,7 @@ const commands = [
     ],
   },
   {
-    name: 'canalsetup', // 🔄 Cambiado de canal-setup a canalsetup
+    name: 'canalsetup',
     description: 'Configura el canal donde se enviarán los registros/logs',
     default_member_permissions: String(PermissionFlagsBits.Administrator),
     options: [
@@ -133,22 +143,29 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 (async () => {
   try {
-    console.log('Registrando comandos (/embed, /canalsetup)...');
+    console.log('⏳ Registrando comandos (/embed, /canalsetup)...');
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log('¡Comandos registrados con éxito!');
+    console.log('✅ ¡Comandos registrados con éxito!');
   } catch (error) {
-    console.error('Hubo un error al registrar los comandos:', error);
+    console.error('❌ Hubo un error al registrar los comandos:', error);
   }
 })();
 
-// INTERACCIONES
+// ==========================================
+// MANEJO DE INTERACCIONES (COMANDOS)
+// ==========================================
 client.on('interactionCreate', async interaction => {
+  
+  // 1. AUTOCOMPLETADO DE COLORES
   if (interaction.isAutocomplete()) {
     const focusedValue = interaction.options.getFocused();
     const opcionesColor = [
         { name: '🔴 Rojo', value: '#FF0000' },
         { name: '🔵 Azul', value: '#0000FF' },
         { name: '🟢 Verde', value: '#00FF00' },
+        { name: '🟡 Amarillo', value: '#FFFF00' },
+        { name: '🟠 Naranja', value: '#FFA500' },
+        { name: '🟣 Morado', value: '#800080' },
         { name: '⚪ Blanco', value: '#FFFFFF' },
         { name: '⚫ Negro', value: '#000000' }
     ];
@@ -156,10 +173,11 @@ client.on('interactionCreate', async interaction => {
         opcion.name.toLowerCase().includes(focusedValue.toLowerCase()) || 
         opcion.value.toLowerCase().includes(focusedValue.toLowerCase())
     );
-    await interaction.respond(filtrado);
+    await interaction.respond(filtrado).catch(() => {});
     return;
   }
 
+  // 2. EJECUCIÓN DE COMANDOS CHAT INPUT
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'embed') {
@@ -169,26 +187,36 @@ client.on('interactionCreate', async interaction => {
     const foto = interaction.options.getAttachment('foto');
 
     const embed = new EmbedBuilder().setTitle(titulo).setDescription(descripcion);
-    try { embed.setColor(color); } catch (e) { embed.setColor('#2B2D31'); }
+    
+    // Evitar fallos si introducen un código de color inválido
+    try { 
+        embed.setColor(color); 
+    } catch (e) { 
+        embed.setColor('#2B2D31'); 
+    }
+    
     if (foto) embed.setImage(foto.url);
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({ embeds: [embed] }).catch(() => {});
   }
 
-  if (interaction.commandName === 'canalsetup') { // 🔄 Cambiado aquí también
+  if (interaction.commandName === 'canalsetup') {
     const canal = interaction.options.getChannel('canal');
     saveLogChannel(interaction.guildId, canal.id);
     
     await interaction.reply({ 
       content: `✅ ¡Listo! A partir de ahora enviaré todos los registros de moderación y mensajes borrados en ${canal}`, 
       ephemeral: true 
-    });
+    }).catch(() => {});
   }
 });
 
-// EVENTOS DE LOGS
+// ==========================================
+// EVENTOS DE LOGS (BORRADO, BANS, KICKS, MUTES)
+// ==========================================
 client.on('messageDelete', async (message) => {
-    if (!message.guild) return;
+    if (!message.guild || message.author?.bot) return; // Ignorar mensajes en MD o de otros bots para evitar spam
+
     const logChannelId = getLogChannel(message.guild.id);
     if (!logChannelId) return;
 
@@ -204,7 +232,7 @@ client.on('messageDelete', async (message) => {
         .addFields(
             { name: 'Autor', value: autor, inline: true },
             { name: 'Canal', value: `<#${message.channel.id}>`, inline: true },
-            { name: 'Contenido', value: contenido }
+            { name: 'Contenido', value: contenido.substring(0, 1024) } // Límite de caracteres de Discord
         )
         .setTimestamp();
 
@@ -214,6 +242,7 @@ client.on('messageDelete', async (message) => {
 client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
     const logChannelId = getLogChannel(guild.id);
     if (!logChannelId) return;
+    
     const logChannel = guild.channels.cache.get(logChannelId);
     if (!logChannel) return;
 
@@ -233,7 +262,7 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
         logChannel.send({ embeds: [embed] }).catch(() => {});
     }
     else if (action === AuditLogEvent.MemberUpdate) {
-        const timeoutChange = changes.find(c => c.key === 'communication_disabled_until');
+        const timeoutChange = changes?.find(c => c.key === 'communication_disabled_until');
         if (timeoutChange) {
             if (timeoutChange.new) {
                 const time = Math.floor(new Date(timeoutChange.new).getTime() / 1000);
@@ -250,8 +279,11 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
     }
 });
 
+// ==========================================
+// ARRANQUE DEL BOT
+// ==========================================
 client.once('clientReady', () => {
-  console.log(`¡Listo! El bot ${client.user.tag} está encendido y funcionando con logs 24/7.`);
+  console.log(`🚀 ¡Listo! El bot ${client.user.tag} está en línea, blindado contra fallos y funcionando 24/7.`);
 });
 
 client.login(TOKEN);
