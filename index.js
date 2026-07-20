@@ -1,5 +1,5 @@
 require('dotenv').config();
-const http = require('http'); // Módulo nativo para el servidor HTTP 24/7
+const http = require('http'); // Módulo para el servidor HTTP 24/7
 const { 
   Client, 
   GatewayIntentBits, 
@@ -115,7 +115,7 @@ const commands = [
     ],
   },
   {
-    name: 'canal-setup',
+    name: 'canalsetup', // 🔄 Cambiado de canal-setup a canalsetup
     description: 'Configura el canal donde se enviarán los registros/logs',
     default_member_permissions: String(PermissionFlagsBits.Administrator),
     options: [
@@ -133,7 +133,7 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 (async () => {
   try {
-    console.log('Registrando comandos (/embed, /canal-setup)...');
+    console.log('Registrando comandos (/embed, /canalsetup)...');
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
     console.log('¡Comandos registrados con éxito!');
   } catch (error) {
@@ -175,7 +175,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({ embeds: [embed] });
   }
 
-  if (interaction.commandName === 'canal-setup') {
+  if (interaction.commandName === 'canalsetup') { // 🔄 Cambiado aquí también
     const canal = interaction.options.getChannel('canal');
     saveLogChannel(interaction.guildId, canal.id);
     
