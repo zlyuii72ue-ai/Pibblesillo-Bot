@@ -1,7 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, ApplicationCommandOptionType, PermissionFlagsBits } = require('discord.js');
 
-// Variables de entorno (Railway las inyectará automáticamente)
+// Variables de entorno (Railway)
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CLIENT_ID = process.env.CLIENT_ID; 
 
@@ -16,7 +16,6 @@ const commands = [
   {
     name: 'embed',
     description: 'Crea un mensaje embed súper personalizado',
-    // ESTA LÍNEA ES LA MAGIA PARA QUE SOLO LOS ADMINS LO USEN/VEAN
     default_member_permissions: String(PermissionFlagsBits.Administrator),
     options: [
       {
@@ -33,8 +32,9 @@ const commands = [
       },
       {
         name: 'color',
-        description: 'Color en código Hex (ej. #FF0000 para rojo)',
+        description: 'Elige un color de la lista o escribe tu propio Hex (ej. #FF5555)',
         type: ApplicationCommandOptionType.String,
+        autocomplete: true, // Activamos el autocompletado en lugar de cerrarlo a opciones fijas
         required: false, 
       },
       {
@@ -58,7 +58,36 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
   }
 })();
 
+// Escuchamos las interacciones del usuario
 client.on('interactionCreate', async interaction => {
+  
+  // 1. MANEJAR EL AUTOCOMPLETADO DE COLORES
+  if (interaction.isAutocomplete()) {
+    const focusedValue = interaction.options.getFocused();
+    
+    // Nuestra lista de sugerencias rápidas
+    const opcionesColor = [
+        { name: '🔴 Rojo', value: '#FF0000' },
+        { name: '🔵 Azul', value: '#0000FF' },
+        { name: '🟢 Verde', value: '#00FF00' },
+        { name: '🟡 Amarillo', value: '#FFFF00' },
+        { name: '🟠 Naranja', value: '#FFA500' },
+        { name: '🟣 Morado', value: '#800080' },
+        { name: '⚪ Blanco', value: '#FFFFFF' },
+        { name: '⚫ Negro', value: '#000000' }
+    ];
+
+    // Filtra las opciones basadas en lo que el usuario esté escribiendo
+    const filtrado = opcionesColor.filter(opcion => 
+        opcion.name.toLowerCase().includes(focusedValue.toLowerCase()) || 
+        opcion.value.toLowerCase().includes(focusedValue.toLowerCase())
+    );
+
+    await interaction.respond(filtrado);
+    return;
+  }
+
+  // 2. MANEJAR EL COMANDO EN SÍ
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'embed') {
@@ -71,9 +100,11 @@ client.on('interactionCreate', async interaction => {
       .setTitle(titulo)
       .setDescription(descripcion);
 
+    // Intentamos aplicar el color (ya sea de la lista o uno personalizado)
     try {
         embed.setColor(color);
     } catch (e) {
+        // Si el usuario escribió cualquier cosa que no sea un Hex válido (ej. "hola"), ponemos un color por defecto para que no crashee.
         embed.setColor('#2B2D31'); 
     }
 
