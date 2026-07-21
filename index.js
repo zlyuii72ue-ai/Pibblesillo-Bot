@@ -17,7 +17,7 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot activo 24/7 con Sistema Anti-Spam Progresivo!');
+  res.end('🤖 Bot activo 24/7 con Respuestas Directas y Moderación Avanzada!');
 }).listen(PORT, () => console.log(`[HTTP] Servidor listo en el puerto ${PORT}`));
 
 // 2. CONFIGURACIÓN, CREDENCIALES Y CANAL DE LOGS
@@ -74,10 +74,10 @@ function addSanction(guildId, userId, type, moderator, reason, duration = null) 
     return newSanction;
 }
 
-// Mapas en memoria para rastrear actividad y advertencias
-const userMessages = new Map();     // Rastrear tiempo entre mensajes
+// MAPAS EN MEMORIA
+const userMessages = new Map();     // Rastrear velocidad de mensajes
 const userSpamWarns = new Map();    // Contar advertencias (1/3, 2/3, 3/3)
-const userSpamMutes = new Map();    // Contar mutes recibidos por spam (1º, 2º, 3º+)
+const userSpamMutes = new Map();    // Contar mutes acumulados (1º, 2º, 3º+)
 
 // 5. CLIENTE DE DISCORD
 const client = new Client({ 
@@ -135,35 +135,51 @@ client.once('clientReady', async () => {
   }
 });
 
-// 7. AUTOMODERACIÓN Y COMANDOS DE TEXTO (pibble)
+// 7. AUTOMODERACIÓN Y COMANDOS DE MODERACIÓN
 client.on('messageCreate', async (message) => {
     if (!message.guild || message.author.bot) return;
 
     const isMod = message.member.permissions.has(PermissionFlagsBits.ManageMessages) || message.member.permissions.has(PermissionFlagsBits.Administrator);
 
     // ==========================================
-    // A) AUTOMODERACIÓN (Ignora a Mods/Admins)
+    // A) AUTOMODERACIÓN AVANZADA (Ignora Mods/Admins)
     // ==========================================
     if (!isMod) {
-        let isSpamming = false;
+        let violationType = null;
+        const content = message.content || '';
 
-        // 1. ANTI-LINKS
+        // 1. DETECCIÓN DE ENLACES / LINKS NO AUTORIZADOS
         const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/i;
-        if (linkRegex.test(message.content)) {
-            await message.delete().catch(() => {});
-            const warnMsg = await message.channel.send(`⚠️ ${message.author}, los enlaces no están permitidos.`);
-            setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
-            return;
+        if (linkRegex.test(content)) {
+            violationType = 'Envío de enlaces no autorizados';
         }
 
-        // 2. ANTI-EMOJIS MASIVOS (>5 emojis)
+        // 2. DETECCIÓN DE EXCESO DE TAGS / MENCIONES (> 4 menciones)
+        const userMentions = message.mentions.users.size;
+        const roleMentions = message.mentions.roles.size;
+        if ((userMentions + roleMentions) > 4 || message.mentions.everyone) {
+            violationType = violationType || 'Exceso de menciones / tags';
+        }
+
+        // 3. DETECCIÓN DE FLOOD EN UN SOLO MENSAJE (> 8 saltos de línea o > 700 chars)
+        const lineBreaks = (content.match(/\n/g) || []).length;
+        if (lineBreaks > 8 || content.length > 700) {
+            violationType = violationType || 'Flood de texto / mensaje masivo';
+        }
+
+        // 4. DETECCIÓN DE REPETICIÓN EXCESIVA DE CARACTERES
+        if (/(.)\1{9,}/i.test(content)) {
+            violationType = violationType || 'Caracteres repetidos obsesivamente';
+        }
+
+        // 5. DETECCIÓN DE EMOJIS MASIVOS (> 5 emojis)
         const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:[a-zA-Z0-9_]+:[0-9]+>)/g;
-        const matches = message.content.match(emojiRegex);
-        if (matches && matches.length > 5) {
-            isSpamming = true;
+        const emojiMatches = content.match(emojiRegex);
+        if (emojiMatches && emojiMatches.length > 5) {
+            violationType = violationType || 'Exceso de emojis';
         }
 
-        // 3. ANTI-FLOOD (Más de 4 mensajes en 3 segundos)
+        // 6. DETECCIÓN DE FLOOD POR VELOCIDAD (> 4 mensajes en 3 segundos)
         const userId = message.author.id;
         const now = Date.now();
         if (!userMessages.has(userId)) userMessages.set(userId, []);
@@ -174,46 +190,49 @@ client.on('messageCreate', async (message) => {
         userMessages.set(userId, recentTimestamps);
 
         if (recentTimestamps.length > 4) {
-            isSpamming = true;
+            violationType = violationType || 'Flood de mensajes rápidos';
         }
 
-        // 🚨 SI EL USUARIO HIZO SPAM O FLOOD:
-        if (isSpamming) {
+        // 🚨 SI SE DETECTÓ CUALQUIER INFRACCIÓN:
+        if (violationType) {
             await message.delete().catch(() => {});
 
-            // Sumar advertencia (1/3, 2/3, 3/3)
+            // Incrementar advertencia
             const currentWarns = (userSpamWarns.get(userId) || 0) + 1;
             userSpamWarns.set(userId, currentWarns);
 
             if (currentWarns < 3) {
                 // ADVERTENCIAS 1 Y 2
-                const warnMsg = await message.channel.send(`⚠️ ${message.author}, ¡deja de spammear! (**Advertencia ${currentWarns}/3**)`);
+                const warnMsg = await message.channel.send(
+                    `⚠️ ${message.author}, ¡deja el spam/flood/tags/links! (**Advertencia ${currentWarns}/3**)\n*Motivo:* ${violationType}`
+                );
                 setTimeout(() => warnMsg.delete().catch(() => {}), 6000);
             } else {
                 // ADVERTENCIA 3: APLICAR MUTE PROGRESIVO
-                userSpamWarns.set(userId, 0); // Reiniciar conteo de advertencias
+                userSpamWarns.set(userId, 0);
 
                 const mutesCount = (userSpamMutes.get(userId) || 0) + 1;
                 userSpamMutes.set(userId, mutesCount);
 
-                let durationMs = 3600000; // 1 Hora por defecto (1er mute)
+                let durationMs = 3600000; // 1 Hora
                 let durationText = '1h';
 
                 if (mutesCount === 2) {
-                    durationMs = 10800000; // 3 Horas (2do mute)
+                    durationMs = 10800000; // 3 Horas
                     durationText = '3h';
                 } else if (mutesCount >= 3) {
-                    durationMs = 36000000; // 10 Horas (3er mute o superior)
+                    durationMs = 36000000; // 10 Horas
                     durationText = '10h';
                 }
 
-                const reason = `Spam/Flood recurrente (Mute #${mutesCount})`;
+                const reason = `Automoderación Reincidente (Mute #${mutesCount}) - ${violationType}`;
                 await message.member.timeout(durationMs, reason).catch(() => {});
 
-                // Registrar en el historial de sanciones
                 const sanction = addSanction(message.guild.id, userId, 'MUTE', client.user.tag, reason, durationText);
 
-                message.channel.send(`🔇 ${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias de spam. | ID: \`${sanction.id}\``);
+                message.channel.send(
+                    `🔇 ${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias de automoderación. | ID: \`${sanction.id}\``
+                );
             }
             return;
         }
@@ -228,25 +247,51 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
+    // Funnel para obtener el objetivo (por Mención o por Respuesta)
+    let targetMember = message.mentions.members.first();
+    let isReply = false;
+
+    if (!targetMember && message.reference) {
+        try {
+            const repliedMessage = await message.channel.messages.fetch(message.reference.messageId);
+            if (repliedMessage) {
+                targetMember = await message.guild.members.fetch(repliedMessage.author.id).catch(() => null);
+                isReply = true;
+            }
+        } catch (e) {
+            console.error("Error al obtener mensaje respondido:", e);
+        }
+    }
+
     // 🔨 BAN
     if (command === 'ban') {
-        const target = message.mentions.members.first();
-        if (!target) return message.reply('⚠️ Menciona a alguien. Ej: `pibble ban @usuario razón`');
-        if (!target.bannable) return message.reply('❌ No puedo banear a este usuario.');
+        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje. Ej: `pibble ban [razón]`');
+        if (!targetMember.bannable) return message.reply('❌ No puedo banear a este usuario.');
 
-        const reason = args.slice(1).join(' ') || 'Razón no especificada';
-        await target.ban({ reason }).catch(() => {});
+        const reasonIndex = isReply ? 0 : 1;
+        const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
 
-        const sanction = addSanction(message.guild.id, target.id, 'BAN', message.author.tag, reason);
-        message.channel.send(`🔨 **${target.user.tag}** ha sido baneado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        await targetMember.ban({ reason }).catch(() => {});
+
+        const sanction = addSanction(message.guild.id, targetMember.id, 'BAN', message.author.tag, reason);
+        message.channel.send(`🔨 **${targetMember.user.tag}** ha sido baneado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
     }
 
     // 🔓 UNBAN
     if (command === 'unban') {
-        const targetId = args[0]?.replace(/[<@!>]/g, '');
-        if (!targetId) return message.reply('⚠️ Indica el ID del usuario. Ej: `pibble unban 123456789012345678 [razón]`');
+        let targetId = targetMember ? targetMember.id : args[0]?.replace(/[<@!>]/g, '');
 
-        const reason = args.slice(1).join(' ') || 'Razón no especificada';
+        if (!targetId && message.reference) {
+            try {
+                const repliedMessage = await message.channel.messages.fetch(message.reference.messageId);
+                if (repliedMessage) targetId = repliedMessage.author.id;
+            } catch (e) {}
+        }
+
+        if (!targetId) return message.reply('⚠️ Indica el ID del usuario, menciónalo o responde a su mensaje. Ej: `pibble unban 123456789012345678 [razón]`');
+
+        const reasonIndex = (isReply || targetMember) ? 0 : 1;
+        const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
 
         try {
             await message.guild.members.unban(targetId, reason);
@@ -259,25 +304,27 @@ client.on('messageCreate', async (message) => {
 
     // 👢 KICK
     if (command === 'kick') {
-        const target = message.mentions.members.first();
-        if (!target) return message.reply('⚠️ Menciona a alguien. Ej: `pibble kick @usuario razón`');
-        if (!target.kickable) return message.reply('❌ No puedo expulsar a este usuario.');
+        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje. Ej: `pibble kick [razón]`');
+        if (!targetMember.kickable) return message.reply('❌ No puedo expulsar a este usuario.');
 
-        const reason = args.slice(1).join(' ') || 'Razón no especificada';
-        await target.kick(reason).catch(() => {});
+        const reasonIndex = isReply ? 0 : 1;
+        const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
 
-        const sanction = addSanction(message.guild.id, target.id, 'KICK', message.author.tag, reason);
-        message.channel.send(`👢 **${target.user.tag}** ha sido expulsado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        await targetMember.kick(reason).catch(() => {});
+
+        const sanction = addSanction(message.guild.id, targetMember.id, 'KICK', message.author.tag, reason);
+        message.channel.send(`👢 **${targetMember.user.tag}** ha sido expulsado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
     }
 
     // 🔇 MUTE
     if (command === 'mute') {
-        const target = message.mentions.members.first();
-        const timeArg = args[1];
-        const reason = args.slice(2).join(' ') || 'Razón no especificada';
+        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje. Ej: `pibble mute <tiempo> [razón]`');
+        if (!targetMember.moderatable) return message.reply('❌ No puedo silenciar a este usuario.');
 
-        if (!target || !timeArg) return message.reply('⚠️ Uso: `pibble mute @usuario <tiempo> [razón]` (Ej: `10m`, `2h`, `10d`)');
-        if (!target.moderatable) return message.reply('❌ No puedo silenciar a este usuario.');
+        const timeArg = isReply ? args[0] : args[1];
+        const reason = isReply ? args.slice(1).join(' ') || 'Razón no especificada' : args.slice(2).join(' ') || 'Razón no especificada';
+
+        if (!timeArg) return message.reply('⚠️ Especifica el tiempo. Ej: `pibble mute 10m` o `pibble mute @usuario 10m`');
 
         const timeMultipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
         const unit = timeArg.slice(-1).toLowerCase();
@@ -288,26 +335,27 @@ client.on('messageCreate', async (message) => {
         const durationMs = num * timeMultipliers[unit];
         if (durationMs > 2419200000) return message.reply('⚠️ El tiempo máximo es 28 días.');
 
-        await target.timeout(durationMs, reason).catch(() => {});
+        await targetMember.timeout(durationMs, reason).catch(() => {});
 
-        const sanction = addSanction(message.guild.id, target.id, 'MUTE', message.author.tag, reason, timeArg);
-        message.channel.send(`🔇 **${target.user.tag}** ha sido silenciado por **${timeArg}** por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        const sanction = addSanction(message.guild.id, targetMember.id, 'MUTE', message.author.tag, reason, timeArg);
+        message.channel.send(`🔇 **${targetMember.user.tag}** ha sido silenciado por **${timeArg}** por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
     }
 
     // 🔊 UNMUTE
     if (command === 'unmute') {
-        const target = message.mentions.members.first();
-        if (!target) return message.reply('⚠️ Menciona a alguien. Ej: `pibble unmute @usuario [razón]`');
-        
-        if (!target.isCommunicationDisabled()) {
+        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje.');
+
+        if (!targetMember.isCommunicationDisabled()) {
             return message.reply('⚠️ Este usuario no está silenciado.');
         }
 
-        const reason = args.slice(1).join(' ') || 'Razón no especificada';
-        await target.timeout(null, reason).catch(() => {});
+        const reasonIndex = isReply ? 0 : 1;
+        const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
 
-        const sanction = addSanction(message.guild.id, target.id, 'UNMUTE', message.author.tag, reason);
-        message.channel.send(`🔊 **${target.user.tag}** ya no está silenciado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        await targetMember.timeout(null, reason).catch(() => {});
+
+        const sanction = addSanction(message.guild.id, targetMember.id, 'UNMUTE', message.author.tag, reason);
+        message.channel.send(`🔊 **${targetMember.user.tag}** ya no está silenciado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
     }
 });
 
