@@ -108,6 +108,17 @@ const commands = [
     description: 'Muestra los comandos disponibles de moderación',
   },
   {
+    name: 'embed',
+    description: 'Crea y envía un mensaje embed personalizado',
+    default_member_permissions: String(PermissionFlagsBits.ManageMessages),
+    options: [
+      { name: 'titulo', description: 'Título del embed', type: ApplicationCommandOptionType.String, required: true },
+      { name: 'descripcion', description: 'Texto principal del embed', type: ApplicationCommandOptionType.String, required: true },
+      { name: 'color', description: 'Color en HEX (ej. #FF0000) o nombre', type: ApplicationCommandOptionType.String, required: false },
+      { name: 'canal', description: 'Canal donde se enviará (opcional)', type: ApplicationCommandOptionType.Channel, required: false }
+    ]
+  },
+  {
     name: 'hist',
     description: 'Muestra el historial de sanciones de un usuario',
     default_member_permissions: String(PermissionFlagsBits.ManageMessages),
@@ -193,14 +204,14 @@ function buildHelpEmbed() {
     .setColor('#0099FF')
     .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
     .addFields(
+      { name: '🎨 `/embed <título> <descripción> [color] [canal]`', value: 'Crea y envía un embed personalizado.' },
       { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos de tiempo: `10m`, `2h`, `1d`.' },
       { name: '🔊 `pibble unmute <@user|reply> [razón]`', value: 'Quita el silencio a un usuario.' },
       { name: '👢 `pibble kick <@user|reply> [razón]`', value: 'Expulsa a un usuario del servidor.' },
       { name: '🔨 `pibble ban <@user|reply> [razón]`', value: 'Banea a un usuario del servidor.' },
       { name: '🔓 `pibble unban <ID_Usuario> [razón]`', value: 'Desbanea a un usuario usando su ID.' },
       { name: '🧹 `pibble purge <cantidad>`', value: 'Elimina de 1 a 100 mensajes del canal actual.' },
-      { name: '📜 `pibble hist <@user>` (o `/hist`)', value: 'Muestra el historial de sanciones del usuario.' },
-      { name: 'ℹ️ Responder Mensajes', value: 'Todos los comandos anteriores funcionan directamente respondiendo (*reply*) al mensaje de la persona.' }
+      { name: '📜 `pibble hist <@user>` (o `/hist`)', value: 'Muestra el historial de sanciones del usuario.' }
     )
     .setFooter({ text: 'Sistema de Moderación Pibble' })
     .setTimestamp();
@@ -219,7 +230,7 @@ client.on('messageCreate', async (message) => {
         const userId = message.author.id;
         const now = Date.now();
 
-        // --- CHEQUEO DE SPAM DE STICKERS (Máximo 2 stickers en 5 segundos) ---
+        // --- CHEQUEO DE SPAM DE STICKERS (Más de 2 stickers en 5 segundos) ---
         if (message.stickers.size > 0) {
             if (!userStickers.has(userId)) userStickers.set(userId, []);
             const stickerStamps = userStickers.get(userId);
@@ -266,7 +277,7 @@ client.on('messageCreate', async (message) => {
             violationType = 'Exceso de menciones / tags';
         }
 
-        // --- CHEQUEO DE FLOOD DE TEXTO / LÍNEAS / CARACTERES REPETIDOS ---
+        // --- CHEQUEO DE FLOOD DE TEXTO ---
         if (!violationType) {
             if ((content.match(/\n/g) || []).length > 8 || content.length > 700) {
                 violationType = 'Flood de texto / mensaje masivo';
@@ -309,27 +320,21 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift()?.toLowerCase();
 
-    // LISTA VÁLIDA DE COMANDOS
     const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist'];
     if (!validCommands.includes(command)) return; 
 
-    // SI NO ES MODERADOR, MOSTRAR MENSAJE BURLÓN Y BORRARLO EN 2 SEGUNDOS
     if (!isMod) {
         const noPermMsg = await message.reply("Este comando es de administrador JJAJAJA, deja de intentar usarlo.").catch(() => {});
         if (noPermMsg) {
-            setTimeout(() => {
-                noPermMsg.delete().catch(() => {});
-            }, 2000);
+            setTimeout(() => noPermMsg.delete().catch(() => {}), 2000);
         }
         return;
     }
 
-    // COMANDO: HELP
     if (command === 'help') {
         return message.reply({ embeds: [buildHelpEmbed()] }).catch(() => {});
     }
 
-    // COMANDO TEXTO: PURGE
     if (command === 'purge') {
         const amount = parseInt(args[0]);
         if (isNaN(amount) || amount < 1 || amount > 100) {
@@ -343,12 +348,11 @@ client.on('messageCreate', async (message) => {
             const confirmMsg = await message.channel.send(`Se eliminaron **${deleted.size}** mensajes.`);
             setTimeout(() => confirmMsg.delete().catch(() => {}), 5000);
         } catch (error) {
-            message.channel.send('No se pudieron eliminar mensajes antiguos (Discord no permite borrar mensajes de más de 14 días en masa).').catch(() => {});
+            message.channel.send('No se pudieron eliminar mensajes antiguos.').catch(() => {});
         }
         return;
     }
 
-    // OBTENER MIEMBRO OBJETIVO (Mención O Mensaje Respondido)
     let targetMember = message.mentions.members.first();
     let isReply = false;
 
@@ -362,7 +366,6 @@ client.on('messageCreate', async (message) => {
         } catch (e) {}
     }
 
-    // COMANDO TEXTO: HIST
     if (command === 'hist') {
         if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje para consultar su historial.');
         const data = getSanctions();
@@ -390,26 +393,23 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [embed] });
     }
 
-    // COMANDO TEXTO: MUTE
     if (command === 'mute') {
-        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje. Ejemplo: `pibble mute @usuario 10m razon` o responde diciendo `pibble mute 10m razon`');
+        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje.');
         if (!targetMember.moderatable) return message.reply('No se puede silenciar a este usuario.');
 
         let timeArg = isReply ? args[0] : args[1];
         let reason = isReply ? args.slice(1).join(' ') : args.slice(2).join(' ');
 
         const durationMs = parseDuration(timeArg);
-        if (!durationMs) return message.reply('Formato de tiempo inválido. Usa `10m`, `2h`, `1d`, etc.');
-        if (durationMs > 2419200000) return message.reply('El tiempo máximo es 28 días.');
-
+        if (!durationMs) return message.reply('Formato de tiempo inválido. Usa `10m`, `2h`, `1d`.');
+        
         reason = reason || 'Razón no especificada';
         await targetMember.timeout(durationMs, reason).catch(() => {});
 
         const sanction = addSanction(message.guild.id, targetMember.id, 'MUTE', message.author.tag, reason, timeArg);
-        message.channel.send(`**${targetMember.user.tag}** ha sido silenciado por **${timeArg}** por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ha sido silenciado por **${timeArg}**. | ID: \`${sanction.id}\``);
     }
 
-    // COMANDO TEXTO: UNMUTE
     if (command === 'unmute') {
         if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje.');
         if (!targetMember.isCommunicationDisabled()) return message.reply('Este usuario no está silenciado.');
@@ -419,10 +419,9 @@ client.on('messageCreate', async (message) => {
 
         await targetMember.timeout(null, reason).catch(() => {});
         const sanction = addSanction(message.guild.id, targetMember.id, 'UNMUTE', message.author.tag, reason);
-        message.channel.send(`**${targetMember.user.tag}** ya no está silenciado por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ya no está silenciado. | ID: \`${sanction.id}\``);
     }
 
-    // COMANDO TEXTO: BAN
     if (command === 'ban') {
         if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje.');
         if (!targetMember.bannable) return message.reply('No se puede banear a este usuario.');
@@ -432,10 +431,9 @@ client.on('messageCreate', async (message) => {
 
         await targetMember.ban({ reason }).catch(() => {});
         const sanction = addSanction(message.guild.id, targetMember.id, 'BAN', message.author.tag, reason);
-        message.channel.send(`**${targetMember.user.tag}** ha sido baneado por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ha sido baneado. | ID: \`${sanction.id}\``);
     }
 
-    // COMANDO TEXTO: UNBAN
     if (command === 'unban') {
         let targetId = targetMember ? targetMember.id : args[0]?.replace(/[<@!>]/g, '');
         if (!targetId) return message.reply('Indica el ID del usuario.');
@@ -446,13 +444,12 @@ client.on('messageCreate', async (message) => {
         try {
             await message.guild.members.unban(targetId, reason);
             const sanction = addSanction(message.guild.id, targetId, 'UNBAN', message.author.tag, reason);
-            message.channel.send(`Se ha desbaneado al usuario (\`${targetId}\`) por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
+            message.channel.send(`Se ha desbaneado al usuario (\`${targetId}\`). | ID: \`${sanction.id}\``);
         } catch (e) {
-            message.reply('No se pudo desbanear al usuario. Verifica el ID.').catch(() => {});
+            message.reply('No se pudo desbanear al usuario. Verifica el ID.');
         }
     }
 
-    // COMANDO TEXTO: KICK
     if (command === 'kick') {
         if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje.');
         if (!targetMember.kickable) return message.reply('No se puede expulsar a este usuario.');
@@ -462,20 +459,17 @@ client.on('messageCreate', async (message) => {
 
         await targetMember.kick(reason).catch(() => {});
         const sanction = addSanction(message.guild.id, targetMember.id, 'KICK', message.author.tag, reason);
-        message.channel.send(`**${targetMember.user.tag}** ha sido expulsado por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ha sido expulsado. | ID: \`${sanction.id}\``);
     }
 });
 
-// 8. INTERACCIONES DE COMANDOS SLASH (/help, /mute, /ban, /kick, /purge, etc.)
+// 8. INTERACCIONES DE COMANDOS SLASH (/help, /embed, /mute, etc.)
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName, options, guild, user, channel, member } = interaction;
-
-  // VERIFICAR PERMISOS DE MODERACIÓN PARA SLASH COMMANDS
   const isMod = member.permissions.has(PermissionFlagsBits.ManageMessages) || member.permissions.has(PermissionFlagsBits.Administrator);
 
-  // /HELP (Disponible para todos)
   if (commandName === 'help') {
     return interaction.reply({ embeds: [buildHelpEmbed()], ephemeral: true });
   }
@@ -484,10 +478,30 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: 'Este comando es de administrador JJAJAJA, deja de intentar usarlo.', ephemeral: true });
   }
 
-  // /PURGE
+  // /EMBED
+  if (commandName === 'embed') {
+    const titulo = options.getString('titulo');
+    const descripcion = options.getString('descripcion');
+    const colorInput = options.getString('color') || '#0099FF';
+    const targetChannel = options.getChannel('canal') || channel;
+
+    const embed = new EmbedBuilder()
+      .setTitle(titulo)
+      .setDescription(descripcion)
+      .setColor(colorInput)
+      .setTimestamp();
+
+    try {
+      await targetChannel.send({ embeds: [embed] });
+      await interaction.reply({ content: `✅ Embed enviado exitosamente a ${targetChannel}.`, ephemeral: true });
+    } catch (e) {
+      await interaction.reply({ content: '❌ Error al enviar el embed. Verifica que el color sea válido (ej. `#FF0000`) o que tenga permisos en el canal.', ephemeral: true });
+    }
+    return;
+  }
+
   if (commandName === 'purge') {
     const amount = options.getInteger('cantidad');
-
     if (amount < 1 || amount > 100) {
       return interaction.reply({ content: 'Ingresa un número de 1 a 100.', ephemeral: true });
     }
@@ -496,18 +510,17 @@ client.on('interactionCreate', async interaction => {
       const deleted = await channel.bulkDelete(amount, true);
       await interaction.reply({ content: `Se eliminaron **${deleted.size}** mensajes.`, ephemeral: true });
     } catch (error) {
-      await interaction.reply({ content: 'No se pudieron eliminar mensajes antiguos (Discord limita la eliminación de mensajes con más de 14 días).', ephemeral: true });
+      await interaction.reply({ content: 'No se pudieron eliminar mensajes de más de 14 días.', ephemeral: true });
     }
   }
 
-  // /HIST
   if (commandName === 'hist') {
     const targetUser = options.getUser('usuario');
     const data = getSanctions();
     const userSanctions = data[guild.id]?.[targetUser.id] || [];
 
     if (userSanctions.length === 0) {
-      return interaction.reply({ content: `El usuario **${targetUser.tag}** no tiene ninguna sanción.`, ephemeral: true });
+      return interaction.reply({ content: `El usuario **${targetUser.tag}** no tiene sanciones.`, ephemeral: true });
     }
 
     const embed = new EmbedBuilder()
@@ -518,17 +531,15 @@ client.on('interactionCreate', async interaction => {
       .setTimestamp();
 
     userSanctions.forEach((s) => {
-      const durationText = s.duration ? ` | Duración: ${s.duration}` : '';
       embed.addFields({
         name: `[${s.type}] - ID: ${s.id}`,
-        value: `Razón: ${s.reason}\nModerador: ${s.moderator}${durationText}\nFecha: <t:${s.timestamp}:R>`
+        value: `Razón: ${s.reason}\nModerador: ${s.moderator}\nFecha: <t:${s.timestamp}:R>`
       });
     });
 
     await interaction.reply({ embeds: [embed] });
   }
 
-  // /MUTE
   if (commandName === 'mute') {
     const targetUser = options.getUser('usuario');
     const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
@@ -544,10 +555,9 @@ client.on('interactionCreate', async interaction => {
     await targetMember.timeout(durationMs, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'MUTE', user.tag, reason, timeArg);
 
-    await interaction.reply({ content: `**${targetUser.tag}** ha sido silenciado por **${timeArg}** por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
+    await interaction.reply({ content: `**${targetUser.tag}** ha sido silenciado por **${timeArg}**. | ID: \`${sanction.id}\`` });
   }
 
-  // /UNMUTE
   if (commandName === 'unmute') {
     const targetUser = options.getUser('usuario');
     const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
@@ -559,10 +569,9 @@ client.on('interactionCreate', async interaction => {
     await targetMember.timeout(null, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'UNMUTE', user.tag, reason);
 
-    await interaction.reply({ content: `**${targetUser.tag}** ya no está silenciado por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
+    await interaction.reply({ content: `**${targetUser.tag}** ya no está silenciado. | ID: \`${sanction.id}\`` });
   }
 
-  // /KICK
   if (commandName === 'kick') {
     const targetUser = options.getUser('usuario');
     const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
@@ -574,10 +583,9 @@ client.on('interactionCreate', async interaction => {
     await targetMember.kick(reason);
     const sanction = addSanction(guild.id, targetUser.id, 'KICK', user.tag, reason);
 
-    await interaction.reply({ content: `**${targetUser.tag}** ha sido expulsado por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
+    await interaction.reply({ content: `**${targetUser.tag}** ha sido expulsado. | ID: \`${sanction.id}\`` });
   }
 
-  // /BAN
   if (commandName === 'ban') {
     const targetUser = options.getUser('usuario');
     const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
@@ -588,10 +596,9 @@ client.on('interactionCreate', async interaction => {
     await guild.members.ban(targetUser.id, { reason });
     const sanction = addSanction(guild.id, targetUser.id, 'BAN', user.tag, reason);
 
-    await interaction.reply({ content: `**${targetUser.tag}** ha sido baneado por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
+    await interaction.reply({ content: `**${targetUser.tag}** ha sido baneado. | ID: \`${sanction.id}\`` });
   }
 
-  // /UNBAN
   if (commandName === 'unban') {
     const targetId = options.getString('id');
     const reason = options.getString('razon') || 'Razón no especificada';
@@ -599,9 +606,9 @@ client.on('interactionCreate', async interaction => {
     try {
       await guild.members.unban(targetId, reason);
       const sanction = addSanction(guild.id, targetId, 'UNBAN', user.tag, reason);
-      await interaction.reply({ content: `Se ha desbaneado al usuario (\`${targetId}\`) por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
+      await interaction.reply({ content: `Se ha desbaneado al usuario (\`${targetId}\`). | ID: \`${sanction.id}\`` });
     } catch (e) {
-      await interaction.reply({ content: 'No se pudo desbanear al usuario. Verifica que la ID sea correcta.', ephemeral: true });
+      await interaction.reply({ content: 'No se pudo desbanear. Verifica el ID.', ephemeral: true });
     }
   }
 });
@@ -661,9 +668,6 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
              .setColor('#FFA500')
              .addFields(
                  { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                 { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                 { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                 { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
                  { name: 'Razón', value: reason || 'No especificada', inline: false }
              );
         logChannel.send({ embeds: [embed] }).catch(() => {});
@@ -673,9 +677,6 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
              .setColor('#FF0000')
              .addFields(
                  { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                 { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                 { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                 { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
                  { name: 'Razón', value: reason || 'No especificada', inline: false }
              );
         logChannel.send({ embeds: [embed] }).catch(() => {});
@@ -685,9 +686,6 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
              .setColor('#00FF00')
              .addFields(
                  { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                 { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                 { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                 { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
                  { name: 'Razón', value: reason || 'No especificada', inline: false }
              );
         logChannel.send({ embeds: [embed] }).catch(() => {});
@@ -701,21 +699,13 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
                      .setColor('#FFFF00')
                      .addFields(
                          { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                         { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                         { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
                          { name: 'Tiempo', value: `Hasta <t:${time}:R>`, inline: false },
-                         { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
                          { name: 'Razón', value: reason || 'No especificada', inline: false }
                      );
             } else {
                 embed.setTitle('Silencio Removido')
                      .setColor('#00FF00')
-                     .addFields(
-                         { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                         { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                         { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                         { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false }
-                     );
+                     .addFields({ name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true });
             }
             logChannel.send({ embeds: [embed] }).catch(() => {});
         }
