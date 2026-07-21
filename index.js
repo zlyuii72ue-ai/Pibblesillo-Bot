@@ -108,21 +108,30 @@ const userStickers = new Map();
 const userSpamWarns = new Map();    
 const userSpamMutes = new Map();    
 
-// 🎨 PALETA DE COLORES PASTEL
-const PASTEL_COLORS = [
+// 🎨 LISTA COMPLETA DE COLORES (NORMALES Y PASTEL)
+const ALL_COLORS = [
+  // COLORES NORMALES
+  { name: '🔴 Rojo', value: '#FF0000' },
+  { name: '🔵 Azul', value: '#0099FF' },
+  { name: '🟢 Verde', value: '#00FF00' },
+  { name: '🟡 Amarillo', value: '#FFFF00' },
+  { name: '🟣 Morado', value: '#9B59B6' },
+  { name: '🟠 Naranja', value: '#E67E22' },
+  { name: '⚫ Negro', value: '#000001' },
+  { name: '⚪ Blanco', value: '#FFFFFF' },
+  { name: '🟤 Marrón', value: '#795548' },
+  { name: '🩵 Cyan / Turquesa', value: '#00FFFF' },
+  { name: '🩷 Rosa Fuerte', value: '#FF1493' },
+
+  // COLORES PASTEL
   { name: '🌸 Rosa Pastel', value: '#FFB7B2' },
   { name: '🌺 Menta Pastel', value: '#B5EAD7' },
   { name: '🫐 Azul Pastel', value: '#A0C4FF' },
-  { name: '🍇 Lavanda / Morado Pastel', value: '#C7CEEA' },
+  { name: '🍇 Lavanda Pastel', value: '#C7CEEA' },
   { name: '🍋 Amarillo Pastel', value: '#FFF5BA' },
-  { name: '🍑 Melocotón / Naranja Pastel', value: '#FFDAC1' },
+  { name: '🍑 Melocotón Pastel', value: '#FFDAC1' },
   { name: '🍏 Verde Pastel', value: '#C7F9CC' },
-  { name: '🩵 Turquesa Pastel', value: '#9BF6FF' },
-  { name: '🔮 Lila Pastel', value: '#E8AEB7' },
-  { name: '🍬 Coral Pastel', value: '#FF9AA2' },
-  { name: '🧁 Crema / Beige Pastel', value: '#FDFD96' },
   { name: '🧊 Celeste Pastel', value: '#BDE0FE' },
-  { name: '🥐 Marrón Pastel', value: '#DDB8A2' },
   { name: '🩶 Gris Pastel', value: '#E5E5E5' }
 ];
 
@@ -153,7 +162,7 @@ const commands = [
       { name: 'descripcion', description: 'Texto principal del embed', type: ApplicationCommandOptionType.String, required: true },
       { 
         name: 'color', 
-        description: 'Selecciona un color pastel o escribe tu propio HEX (#FF0000)', 
+        description: 'Selecciona un color normal/pastel o escribe tu código HEX (#FF0000)', 
         type: ApplicationCommandOptionType.String, 
         required: false,
         autocomplete: true 
@@ -232,7 +241,6 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 client.once('clientReady', async () => {
   console.log(`Bot conectado como: ${client.user.tag}`);
 
-  // ACTUALIZAR FOTO DEL BOT SI SE CONFIGURÓ BOT_AVATAR_URL
   if (BOT_AVATAR_URL && BOT_AVATAR_URL.startsWith('http')) {
     try {
       await client.user.setAvatar(BOT_AVATAR_URL);
@@ -256,10 +264,10 @@ client.once('clientReady', async () => {
 function buildHelpEmbed() {
   return new EmbedBuilder()
     .setTitle('📖 Guía de Comandos de Moderación')
-    .setColor('#A0C4FF')
+    .setColor('#0099FF')
     .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
     .addFields(
-      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [imagen_url] [canal]`', value: 'Crea un embed con colores pastel y soporte para cualquier imagen.' },
+      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [imagen_url] [canal]`', value: 'Crea un embed con colores normales/pastel y soporte total para imágenes.' },
       { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos: `10m`, `2h`, `1d`.' },
       { name: '🔊 `pibble unmute <@user|reply> [razón]`', value: 'Quita el silencio a un usuario.' },
       { name: '👢 `pibble kick <@user|reply> [razón]`', value: 'Expulsa a un usuario del servidor.' },
@@ -509,15 +517,15 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// 8. INTERACCIONES (COMANDO /EMBED CORREGIDO)
+// 8. INTERACCIONES (AQUÍ ESTÁ EL FIX COMPLETO PARA IMÁGENES)
 client.on('interactionCreate', async interaction => {
 
-  // AUTOCOMPLETADO DE COLORES PASTEL
+  // AUTOCOMPLETADO DE COLORES NORMALES Y PASTEL
   if (interaction.isAutocomplete()) {
     if (interaction.commandName === 'embed') {
       const focusedValue = interaction.options.getFocused().toLowerCase();
       
-      const filtered = PASTEL_COLORS.filter(choice => 
+      const filtered = ALL_COLORS.filter(choice => 
         choice.name.toLowerCase().includes(focusedValue) || choice.value.toLowerCase().includes(focusedValue)
       );
 
@@ -544,17 +552,15 @@ client.on('interactionCreate', async interaction => {
   }
 
   if (commandName === 'embed') {
-    // 1. Diferimos la respuesta para evitar timeout de 3 segundos mientras procesa la imagen
     await interaction.deferReply({ ephemeral: true });
 
     const titulo = options.getString('titulo');
     const descripcion = options.getString('descripcion');
-    let colorInput = options.getString('color') || '#A0C4FF'; // Azul pastel por defecto
+    let colorInput = options.getString('color') || '#0099FF';
     const imageAttachment = options.getAttachment('imagen');
     const imageUrl = options.getString('imagen_url');
     const targetChannel = options.getChannel('canal') || channel;
 
-    // Validación formato HEX
     if (colorInput && !colorInput.startsWith('#') && /^[0-9A-F]{6}$/i.test(colorInput)) {
       colorInput = `#${colorInput}`;
     }
@@ -565,25 +571,24 @@ client.on('interactionCreate', async interaction => {
       .setColor(colorInput)
       .setTimestamp();
 
-    // Lógica para detectar cualquier imagen (PNG, JPG, WEBP, GIF)
-    let finalImageUrl = null;
+    const payload = { embeds: [embed] };
 
-    if (imageAttachment && imageAttachment.url) {
-      finalImageUrl = imageAttachment.url;
+    // LÓGICA DE PROCESAMIENTO DE IMÁGENES CORREGIDA
+    if (imageAttachment) {
+      // Re-enviar el archivo adjunto usando AttachmentBuilder vinculando el attachment://
+      const file = new AttachmentBuilder(imageAttachment.url, { name: imageAttachment.name });
+      embed.setImage(`attachment://${imageAttachment.name}`);
+      payload.files = [file];
     } else if (imageUrl && imageUrl.startsWith('http')) {
-      finalImageUrl = imageUrl;
-    }
-
-    if (finalImageUrl) {
-      embed.setImage(finalImageUrl);
+      embed.setImage(imageUrl);
     }
 
     try {
-      await targetChannel.send({ embeds: [embed] });
+      await targetChannel.send(payload);
       await interaction.editReply({ content: `✅ Embed enviado exitosamente a ${targetChannel}.` });
     } catch (e) {
       console.error("Error enviando embed:", e);
-      await interaction.editReply({ content: '❌ Error al enviar el embed. Verifica que el bot tenga permisos para enviar mensajes e imágenes en ese canal.' });
+      await interaction.editReply({ content: '❌ Error al enviar el embed. Verifica que el bot tenga permisos para adjuntar archivos y enviar mensajes en ese canal.' });
     }
     return;
   }
@@ -713,7 +718,7 @@ client.on('messageDelete', async (message) => {
 
     const embed = new EmbedBuilder()
         .setTitle('Mensaje / Imagen Borrada')
-        .setColor('#FF9AA2')
+        .setColor('#FF0000')
         .setThumbnail(author.displayAvatarURL({ dynamic: true, size: 256 }))
         .addFields(
             { name: 'Usuario', value: `${author.tag}`, inline: true },
@@ -753,7 +758,7 @@ client.on('guildAuditLogEvent', async (auditLog, guild) => {
 
     if (action === AuditLogEvent.MemberKick) {
         embed.setTitle('Usuario Expulsado')
-             .setColor('#FFDAC1')
+             .setColor('#E67E22')
              .addFields(
                  { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
                  { name: 'Razón', value: reason || 'No especificada', inline: false }
@@ -762,7 +767,7 @@ client.on('guildAuditLogEvent', async (auditLog, guild) => {
     }
     else if (action === AuditLogEvent.MemberBanAdd) {
         embed.setTitle('Usuario Baneado')
-             .setColor('#FF9AA2')
+             .setColor('#FF0000')
              .addFields(
                  { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
                  { name: 'Razón', value: reason || 'No especificada', inline: false }
@@ -771,7 +776,7 @@ client.on('guildAuditLogEvent', async (auditLog, guild) => {
     }
     else if (action === AuditLogEvent.MemberBanRemove) {
         embed.setTitle('Usuario Desbaneado')
-             .setColor('#B5EAD7')
+             .setColor('#00FF00')
              .addFields(
                  { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
                  { name: 'Razón', value: reason || 'No especificada', inline: false }
@@ -784,7 +789,7 @@ client.on('guildAuditLogEvent', async (auditLog, guild) => {
             if (timeoutChange.new) {
                 const time = Math.floor(new Date(timeoutChange.new).getTime() / 1000);
                 embed.setTitle('Usuario Silenciado')
-                     .setColor('#FFF5BA')
+                     .setColor('#FFFF00')
                      .addFields(
                          { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
                          { name: 'Tiempo', value: `Hasta <t:${time}:R>`, inline: false },
@@ -792,7 +797,7 @@ client.on('guildAuditLogEvent', async (auditLog, guild) => {
                      );
             } else {
                 embed.setTitle('Silencio Removido')
-                     .setColor('#B5EAD7')
+                     .setColor('#00FF00')
                      .addFields({ name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true });
             }
             logChannel.send({ embeds: [embed] }).catch(() => {});
