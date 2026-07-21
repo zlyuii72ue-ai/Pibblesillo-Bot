@@ -83,7 +83,7 @@ function parseDuration(timeStr) {
     return num * timeMultipliers[unit];
 }
 
-// MAPAS EN MEMORIA
+// MAPAS EN MEMORIA ANTI-SPAM
 const userMessages = new Map();     
 const userSpamWarns = new Map();    
 const userSpamMutes = new Map();    
@@ -103,15 +103,8 @@ const client = new Client({
 // 6. REGISTRO DE COMANDOS SLASH
 const commands = [
   {
-    name: 'embed',
-    description: 'Crea un mensaje embed personalizado',
-    default_member_permissions: String(PermissionFlagsBits.Administrator),
-    options: [
-      { name: 'titulo', description: 'Título del embed', type: ApplicationCommandOptionType.String, required: true },
-      { name: 'descripcion', description: 'Texto principal del embed', type: ApplicationCommandOptionType.String, required: true },
-      { name: 'color', description: 'Elige un color o escribe un Hex (#FF0000)', type: ApplicationCommandOptionType.String, autocomplete: true, required: false },
-      { name: 'foto', description: 'Sube una imagen', type: ApplicationCommandOptionType.Attachment, required: false }
-    ],
+    name: 'help',
+    description: 'Muestra los comandos disponibles de moderación',
   },
   {
     name: 'hist',
@@ -166,6 +159,14 @@ const commands = [
       { name: 'id', description: 'ID del usuario a desbanear', type: ApplicationCommandOptionType.String, required: true },
       { name: 'razon', description: 'Razón del desban', type: ApplicationCommandOptionType.String, required: false }
     ]
+  },
+  {
+    name: 'purge',
+    description: 'Elimina cierta cantidad de mensajes del canal',
+    default_member_permissions: String(PermissionFlagsBits.ManageMessages),
+    options: [
+      { name: 'cantidad', description: 'Cantidad de mensajes a eliminar (1-100)', type: ApplicationCommandOptionType.Integer, required: true }
+    ]
   }
 ];
 
@@ -184,57 +185,91 @@ client.once('clientReady', async () => {
   }
 });
 
+// FUNCION AUXILIAR PARA EL MODO HELP
+function buildHelpEmbed() {
+  return new EmbedBuilder()
+    .setTitle('📖 Guía de Comandos de Moderación')
+    .setColor('#0099FF')
+    .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
+    .addFields(
+      { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos de tiempo: `10m`, `2h`, `1d`.' },
+      { name: '🔊 `pibble unmute <@user|reply> [razón]`', value: 'Quita el silencio a un usuario.' },
+      { name: '👢 `pibble kick <@user|reply> [razón]`', value: 'Expulsa a un usuario del servidor.' },
+      { name: '🔨 `pibble ban <@user|reply> [razón]`', value: 'Banea a un usuario del servidor.' },
+      { name: '🔓 `pibble unban <ID_Usuario> [razón]`', value: 'Desbanea a un usuario usando su ID.' },
+      { name: '🧹 `pibble purge <cantidad>`', value: 'Elimina de 1 a 100 mensajes del canal actual.' },
+      { name: '📜 `pibble hist <@user>` (o `/hist`)', value: 'Muestra el historial de sanciones del usuario.' },
+      { name: 'ℹ️ Responder Mensajes', value: 'Todos los comandos anteriores funcionan directamente respondiendo (*reply*) al mensaje de la persona.' }
+    )
+    .setFooter({ text: 'Sistema de Moderación Pibble' })
+    .setTimestamp();
+}
+
 // 7. AUTOMODERACIÓN Y COMANDOS DE TEXTO (pibble ...)
 client.on('messageCreate', async (message) => {
     if (!message.guild || message.author.bot) return;
 
     const isMod = message.member.permissions.has(PermissionFlagsBits.ManageMessages) || message.member.permissions.has(PermissionFlagsBits.Administrator);
 
-    // A) AUTOMODERACIÓN
+    // A) AUTOMODERACIÓN REFORZADA (Solo para miembros normales)
     if (!isMod) {
         let violationType = null;
         const content = message.content || '';
-
-        const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/gi;
-        const linksFound = content.match(linkRegex);
-
-        if (linksFound) {
-            const gifDomains = ['tenor.com', 'giphy.com', 'imgur.com', 'media.discordapp.net', 'cdn.discordapp.com'];
-            const hasUnauthorizedLink = linksFound.some(link => {
-                const lowerLink = link.toLowerCase();
-                return !(lowerLink.includes('.gif') || gifDomains.some(domain => lowerLink.includes(domain)));
-            });
-            if (hasUnauthorizedLink) violationType = 'Envío de enlaces no autorizados';
-        }
-
-        if ((message.mentions.users.size + message.mentions.roles.size) > 4 || message.mentions.everyone) {
-            violationType = violationType || 'Exceso de menciones / tags';
-        }
-
-        if ((content.match(/\n/g) || []).length > 8 || content.length > 700) {
-            violationType = violationType || 'Flood de texto / mensaje masivo';
-        }
-
-        if (/(.)\1{9,}/i.test(content)) violationType = violationType || 'Caracteres repetidos obsesivamente';
-
         const userId = message.author.id;
         const now = Date.now();
+
+        // --- CHEQUEO DE VELOCIDAD / FLOOD DE MENSAJES DISTINTOS ---
         if (!userMessages.has(userId)) userMessages.set(userId, []);
-        const timestamps = userMessages.get(userId);
-        timestamps.push(now);
-        const recentTimestamps = timestamps.filter(t => now - t < 3000);
-        userMessages.set(userId, recentTimestamps);
+        const userStamps = userMessages.get(userId);
+        userStamps.push(now);
 
-        if (recentTimestamps.length > 4) violationType = violationType || 'Flood de mensajes rápidos';
+        // Mantiene solo las marcas de tiempo de los últimos 2.5 segundos
+        const recentStamps = userStamps.filter(t => now - t < 2500);
+        userMessages.set(userId, recentStamps);
 
+        // Si envía más de 3 mensajes en menos de 2.5s (sin importar el texto)
+        if (recentStamps.length > 3) {
+            violationType = 'Flood de mensajes rápidos / Spam de envío';
+        }
+
+        // --- CHEQUEO DE ENLACES NO AUTORIZADOS ---
+        if (!violationType) {
+            const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/gi;
+            const linksFound = content.match(linkRegex);
+            if (linksFound) {
+                const allowedDomains = ['tenor.com', 'giphy.com', 'imgur.com', 'media.discordapp.net', 'cdn.discordapp.com'];
+                const hasUnauthorizedLink = linksFound.some(link => {
+                    const lowerLink = link.toLowerCase();
+                    return !(lowerLink.includes('.gif') || allowedDomains.some(domain => lowerLink.includes(domain)));
+                });
+                if (hasUnauthorizedLink) violationType = 'Envío de enlaces no autorizados';
+            }
+        }
+
+        // --- CHEQUEO DE EXCESO DE MENCIONES ---
+        if (!violationType && ((message.mentions.users.size + message.mentions.roles.size) > 4 || message.mentions.everyone)) {
+            violationType = 'Exceso de menciones / tags';
+        }
+
+        // --- CHEQUEO DE FLOOD DE TEXTO / LÍNEAS / CARACTERES REPETIDOS ---
+        if (!violationType) {
+            if ((content.match(/\n/g) || []).length > 8 || content.length > 700) {
+                violationType = 'Flood de texto / mensaje masivo';
+            } else if (/(.)\1{9,}/i.test(content)) {
+                violationType = 'Caracteres repetidos obsesivamente';
+            }
+        }
+
+        // ACCIÓN DE SANCIÓN POR SPAM/FLOOD
         if (violationType) {
             await message.delete().catch(() => {});
+
             const currentWarns = (userSpamWarns.get(userId) || 0) + 1;
             userSpamWarns.set(userId, currentWarns);
 
             if (currentWarns < 3) {
-                const warnMsg = await message.channel.send(`${message.author}, evite el spam/flood/tags/links. (Advertencia ${currentWarns}/3)\nMotivo: ${violationType}`);
-                setTimeout(() => warnMsg.delete().catch(() => {}), 6000);
+                const warnMsg = await message.channel.send(`${message.author}, por favor evita el spam/flood de mensajes. (Advertencia ${currentWarns}/3)\nMotivo: **${violationType}**`);
+                setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
             } else {
                 userSpamWarns.set(userId, 0);
                 const mutesCount = (userSpamMutes.get(userId) || 0) + 1;
@@ -247,7 +282,7 @@ client.on('messageCreate', async (message) => {
                 await message.member.timeout(durationMs, reason).catch(() => {});
                 const sanction = addSanction(message.guild.id, userId, 'MUTE', client.user.tag, reason, durationText);
 
-                message.channel.send(`${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias de automoderación. | ID: \`${sanction.id}\``);
+                message.channel.send(`${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias por spam/flood. | ID Sanción: \`${sanction.id}\``);
             }
             return;
         }
@@ -259,12 +294,36 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift()?.toLowerCase();
 
-    // SOLO PROCESAR SI ES UN COMANDO VÁLIDO DE MODERACIÓN
-    const validCommands = ['mute', 'unmute', 'kick', 'ban', 'unban'];
-    if (!validCommands.includes(command)) return; // Ignora cualquier otra palabra que empiece con "pibble "
+    // LISTA VÁLIDA DE COMANDOS (INCLUYE HELP)
+    const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist'];
+    if (!validCommands.includes(command)) return; 
 
-    // SI NO ES MODERADOR, IGNORAR SILENCIOSAMENTE SIN RESPONDER
+    // SI NO ES MODERADOR, IGNORAR SILENCIOSAMENTE
     if (!isMod) return;
+
+    // COMANDO: HELP
+    if (command === 'help') {
+        return message.reply({ embeds: [buildHelpEmbed()] }).catch(() => {});
+    }
+
+    // COMANDO TEXTO: PURGE
+    if (command === 'purge') {
+        const amount = parseInt(args[0]);
+        if (isNaN(amount) || amount < 1 || amount > 100) {
+            return message.reply('Indica una cantidad válida de mensajes entre 1 y 100. Ejemplo: `pibble purge 20`');
+        }
+
+        await message.delete().catch(() => {});
+
+        try {
+            const deleted = await message.channel.bulkDelete(amount, true);
+            const confirmMsg = await message.channel.send(`Se eliminaron **${deleted.size}** mensajes.`);
+            setTimeout(() => confirmMsg.delete().catch(() => {}), 5000);
+        } catch (error) {
+            message.channel.send('No se pudieron eliminar mensajes antiguos (Discord no permite borrar mensajes de más de 14 días en masa).').catch(() => {});
+        }
+        return;
+    }
 
     // OBTENER MIEMBRO OBJETIVO (Mención O Mensaje Respondido)
     let targetMember = message.mentions.members.first();
@@ -280,21 +339,41 @@ client.on('messageCreate', async (message) => {
         } catch (e) {}
     }
 
+    // COMANDO TEXTO: HIST
+    if (command === 'hist') {
+        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje para consultar su historial.');
+        const data = getSanctions();
+        const userSanctions = data[message.guild.id]?.[targetMember.id] || [];
+
+        if (userSanctions.length === 0) {
+            return message.reply(`El usuario **${targetMember.user.tag}** no tiene ninguna sanción registrada.`);
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`Historial de Sanciones: ${targetMember.user.tag}`)
+            .setThumbnail(targetMember.user.displayAvatarURL({ dynamic: true, size: 256 }))
+            .setColor('#FFA500')
+            .setFooter({ text: `Total de registros: ${userSanctions.length}` })
+            .setTimestamp();
+
+        userSanctions.forEach((s) => {
+            const durationText = s.duration ? ` | Duración: ${s.duration}` : '';
+            embed.addFields({
+                name: `[${s.type}] - ID: ${s.id}`,
+                value: `Razón: ${s.reason}\nModerador: ${s.moderator}${durationText}\nFecha: <t:${s.timestamp}:R>`
+            });
+        });
+
+        return message.reply({ embeds: [embed] });
+    }
+
     // COMANDO TEXTO: MUTE
     if (command === 'mute') {
-        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje. Ejemplo: `pibble mute @usuario 10m razon` o responde al mensaje diciendo `pibble mute 10m razon`');
+        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje. Ejemplo: `pibble mute @usuario 10m razon` o responde diciendo `pibble mute 10m razon`');
         if (!targetMember.moderatable) return message.reply('No se puede silenciar a este usuario.');
 
-        let timeArg;
-        let reason;
-
-        if (isReply) {
-            timeArg = args[0];
-            reason = args.slice(1).join(' ');
-        } else {
-            timeArg = args[1];
-            reason = args.slice(2).join(' ');
-        }
+        let timeArg = isReply ? args[0] : args[1];
+        let reason = isReply ? args.slice(1).join(' ') : args.slice(2).join(' ');
 
         const durationMs = parseDuration(timeArg);
         if (!durationMs) return message.reply('Formato de tiempo inválido. Usa `10m`, `2h`, `1d`, etc.');
@@ -364,37 +443,31 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// 8. INTERACCIONES DE COMANDOS SLASH (/mute, /ban, /kick, etc.)
+// 8. INTERACCIONES DE COMANDOS SLASH (/help, /mute, /ban, /kick, /purge, etc.)
 client.on('interactionCreate', async interaction => {
-  if (interaction.isAutocomplete()) {
-    const focusedValue = interaction.options.getFocused();
-    const opcionesColor = [
-        { name: 'Rojo', value: '#FF0000' }, { name: 'Azul', value: '#0000FF' },
-        { name: 'Verde', value: '#00FF00' }, { name: 'Amarillo', value: '#FFFF00' },
-        { name: 'Naranja', value: '#FFA500' }, { name: 'Morado', value: '#800080' },
-        { name: 'Blanco', value: '#FFFFFF' }, { name: 'Negro', value: '#000000' }
-    ];
-    const filtrado = opcionesColor.filter(o => o.name.toLowerCase().includes(focusedValue.toLowerCase()) || o.value.toLowerCase().includes(focusedValue.toLowerCase()));
-    await interaction.respond(filtrado).catch(() => {});
-    return;
-  }
-
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName, options, guild, user } = interaction;
+  const { commandName, options, guild, user, channel } = interaction;
 
-  // /EMBED
-  if (commandName === 'embed') {
-    const titulo = options.getString('titulo');
-    const descripcion = options.getString('descripcion');
-    const color = options.getString('color') || '#2B2D31'; 
-    const foto = options.getAttachment('foto');
+  // /HELP
+  if (commandName === 'help') {
+    return interaction.reply({ embeds: [buildHelpEmbed()], ephemeral: true });
+  }
 
-    const embed = new EmbedBuilder().setTitle(titulo).setDescription(descripcion);
-    try { embed.setColor(color); } catch (e) { embed.setColor('#2B2D31'); }
-    if (foto) embed.setImage(foto.url);
+  // /PURGE
+  if (commandName === 'purge') {
+    const amount = options.getInteger('cantidad');
 
-    await interaction.reply({ embeds: [embed] }).catch(() => {});
+    if (amount < 1 || amount > 100) {
+      return interaction.reply({ content: 'Ingresa un número de 1 a 100.', ephemeral: true });
+    }
+
+    try {
+      const deleted = await channel.bulkDelete(amount, true);
+      await interaction.reply({ content: `Se eliminaron **${deleted.size}** mensajes.`, ephemeral: true });
+    } catch (error) {
+      await interaction.reply({ content: 'No se pudieron eliminar mensajes antiguos (Discord limita la eliminación de mensajes con más de 14 días).', ephemeral: true });
+    }
   }
 
   // /HIST
