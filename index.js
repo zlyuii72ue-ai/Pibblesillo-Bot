@@ -25,6 +25,8 @@ http.createServer((req, res) => {
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CLIENT_ID = process.env.CLIENT_ID; 
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '1528201242407342100'; 
+// OPCIONAL: Si quieres forzar la foto del bot por código, pon la URL de la imagen aquí.
+const BOT_AVATAR_URL = process.env.BOT_AVATAR_URL || ''; 
 
 if (!TOKEN || !CLIENT_ID) {
     console.error("ERROR: Agrega DISCORD_TOKEN y CLIENT_ID en las variables.");
@@ -73,7 +75,7 @@ function addSanction(guildId, userId, type, moderator, reason, duration = null) 
     return newSanction;
 }
 
-// FUNCION AUXILIAR PARA PARSEAR TIEMPOS (10m, 2h, 1d)
+// FUNCIONES AUXILIARES DE TIEMPOS Y RESPUESTAS CON AUTO-ELIMINACIÓN (2 Segundos)
 function parseDuration(timeStr) {
     if (!timeStr) return null;
     const timeMultipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
@@ -83,7 +85,6 @@ function parseDuration(timeStr) {
     return num * timeMultipliers[unit];
 }
 
-// FUNCION AUXILIAR PARA ENVIAR Y BORRAR A LOS 2 SEGUNDOS
 async function replyAndAutoDelete(message, content, delay = 2000) {
     try {
         const sentMsg = await message.reply(content);
@@ -152,6 +153,7 @@ const commands = [
         required: false,
         autocomplete: true 
       },
+      { name: 'imagen', description: 'URL de la imagen o adjunta una foto', type: ApplicationCommandOptionType.Attachment, required: false },
       { name: 'canal', description: 'Canal donde se enviará (opcional)', type: ApplicationCommandOptionType.Channel, required: false }
     ]
   },
@@ -223,6 +225,14 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 client.once('clientReady', async () => {
   console.log(`Bot conectado como: ${client.user.tag}`);
+
+  // ACTUALIZACIÓN DE FOTO DE PERFIL DEL BOT EN TIEMPO REAL (Si está definida la variable)
+  if (BOT_AVATAR_URL) {
+    client.user.setAvatar(BOT_AVATAR_URL)
+      .then(() => console.log('[Avatar] Foto de perfil actualizada correctamente.'))
+      .catch(err => console.error('[Avatar] Error al actualizar la foto:', err));
+  }
+
   try {
     const guildIds = client.guilds.cache.map(guild => guild.id);
     for (const guildId of guildIds) {
@@ -241,11 +251,11 @@ function buildHelpEmbed() {
     .setColor('#0099FF')
     .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
     .addFields(
-      { name: '🎨 `/embed <título> <descripción> [color] [canal]`', value: 'Crea y envía un embed personalizado.' },
-      { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos de tiempo: `10m`, `2h`, `1d`.' },
+      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [canal]`', value: 'Crea y envía un embed personalizado con opción de foto.' },
+      { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos: `10m`, `2h`, `1d`.' },
       { name: '🔊 `pibble unmute <@user|reply> [razón]`', value: 'Quita el silencio a un usuario.' },
       { name: '👢 `pibble kick <@user|reply> [razón]`', value: 'Expulsa a un usuario del servidor.' },
-      { name: '🔨 `pibble ban <@user|ID|reply> [razón]`', value: 'Banea a un usuario mediante mención o pegando su ID.' },
+      { name: '🔨 `pibble ban <@user|ID|reply> [razón]`', value: 'Banea a un usuario mediante mención o ID directa.' },
       { name: '🔓 `pibble unban <ID_Usuario> [razón]`', value: 'Desbanea a un usuario usando su ID.' },
       { name: '🧹 `pibble purge <cantidad>`', value: 'Elimina de 1 a 100 mensajes del canal actual.' },
       { name: '📜 `pibble hist <@user|ID>` (o `/hist`)', value: 'Muestra el historial de sanciones del usuario.' }
@@ -260,7 +270,7 @@ client.on('messageCreate', async (message) => {
 
     const isMod = message.member.permissions.has(PermissionFlagsBits.ManageMessages) || message.member.permissions.has(PermissionFlagsBits.Administrator);
 
-    // A) AUTOMODERACIÓN REFORZADA (Solo para miembros normales)
+    // A) AUTOMODERACIÓN REFORZADA
     if (!isMod) {
         let violationType = null;
         const content = message.content || '';
@@ -378,7 +388,6 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // Identificar objetivo mediante mención, respuesta o ID numérico directo
     let targetMember = message.mentions.members.first();
     let targetId = args[0]?.replace(/[<@!>]/g, '');
     let isReply = false;
@@ -454,7 +463,7 @@ client.on('messageCreate', async (message) => {
     if (command === 'ban') {
         if (!targetId) return replyAndAutoDelete(message, 'Menciona a un usuario o ingresa su ID.');
 
-        const reasonIndex = (targetMember || isReply) ? 1 : 1;
+        const reasonIndex = 1;
         const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
 
         try {
@@ -462,7 +471,7 @@ client.on('messageCreate', async (message) => {
             const sanction = addSanction(message.guild.id, targetId, 'BAN', message.author.tag, reason);
             sendAndAutoDelete(message.channel, `El usuario (\`${targetId}\`) ha sido baneado. | ID: \`${sanction.id}\``);
         } catch (e) {
-            replyAndAutoDelete(message, 'No se pudo banear al usuario. Verifica que la ID sea válida o que tenga jerarquía inferior.');
+            replyAndAutoDelete(message, 'No se pudo banear al usuario. Verifica la ID o la jerarquía de roles.');
         }
     }
 
@@ -531,6 +540,7 @@ client.on('interactionCreate', async interaction => {
     const titulo = options.getString('titulo');
     const descripcion = options.getString('descripcion');
     let colorInput = options.getString('color') || '#0099FF';
+    const imageAttachment = options.getAttachment('imagen');
     const targetChannel = options.getChannel('canal') || channel;
 
     if (colorInput && !colorInput.startsWith('#') && /^[0-9A-F]{6}$/i.test(colorInput)) {
@@ -543,11 +553,15 @@ client.on('interactionCreate', async interaction => {
       .setColor(colorInput)
       .setTimestamp();
 
+    if (imageAttachment) {
+      embed.setImage(imageAttachment.url);
+    }
+
     try {
       await targetChannel.send({ embeds: [embed] });
       await interaction.reply({ content: `✅ Embed enviado exitosamente a ${targetChannel}.`, ephemeral: true });
     } catch (e) {
-      await interaction.reply({ content: '❌ Error al enviar el embed. Verifica que el color sea un código HEX válido (ej. `#FF0000`) o que el bot tenga permisos en el canal.', ephemeral: true });
+      await interaction.reply({ content: '❌ Error al enviar el embed. Verifica que el formato del color sea HEX o que el bot tenga permisos en ese canal.', ephemeral: true });
     }
     return;
   }
@@ -647,7 +661,7 @@ client.on('interactionCreate', async interaction => {
       const sanction = addSanction(guild.id, targetUser.id, 'BAN', user.tag, reason);
       await interaction.reply({ content: `**${targetUser.tag || targetUser.id}** ha sido baneado. | ID Sanción: \`${sanction.id}\`` });
     } catch (e) {
-      await interaction.reply({ content: 'No se pudo banear al usuario. Verifica que la ID sea válida o permisos del bot.', ephemeral: true });
+      await interaction.reply({ content: 'No se pudo banear al usuario. Verifica la ID o la jerarquía de roles.', ephemeral: true });
     }
   }
 
