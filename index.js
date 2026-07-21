@@ -9,7 +9,8 @@ const {
   ApplicationCommandOptionType, 
   PermissionFlagsBits,
   AuditLogEvent,
-  Partials
+  Partials,
+  AttachmentBuilder
 } = require('discord.js');
 const fs = require('fs');
 
@@ -17,7 +18,7 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot activo 24/7 con soporte de GIFs y Moderación Avanzada!');
+  res.end('🤖 Bot activo 24/7 con recuperación de fotos borradas!');
 }).listen(PORT, () => console.log(`[HTTP] Servidor listo en el puerto ${PORT}`));
 
 // 2. CONFIGURACIÓN, CREDENCIALES Y CANAL DE LOGS
@@ -153,15 +154,12 @@ client.on('messageCreate', async (message) => {
         const linksFound = content.match(linkRegex);
 
         if (linksFound) {
-            // Verificar si los links encontrados corresponden a GIFs o plataformas de GIFs
             const gifDomains = ['tenor.com', 'giphy.com', 'imgur.com', 'media.discordapp.net', 'cdn.discordapp.com'];
             
             const hasUnauthorizedLink = linksFound.some(link => {
                 const lowerLink = link.toLowerCase();
-                // Permitir si termina en .gif o si proviene de una plataforma de GIFs permitida
                 const isGifFile = lowerLink.includes('.gif');
                 const isGifDomain = gifDomains.some(domain => lowerLink.includes(domain));
-                
                 return !(isGifFile || isGifDomain);
             });
 
@@ -213,18 +211,15 @@ client.on('messageCreate', async (message) => {
         if (violationType) {
             await message.delete().catch(() => {});
 
-            // Incrementar advertencia
             const currentWarns = (userSpamWarns.get(userId) || 0) + 1;
             userSpamWarns.set(userId, currentWarns);
 
             if (currentWarns < 3) {
-                // ADVERTENCIAS 1 Y 2
                 const warnMsg = await message.channel.send(
                     `⚠️ ${message.author}, ¡deja el spam/flood/tags/links! (**Advertencia ${currentWarns}/3**)\n*Motivo:* ${violationType}`
                 );
                 setTimeout(() => warnMsg.delete().catch(() => {}), 6000);
             } else {
-                // ADVERTENCIA 3: APLICAR MUTE PROGRESIVO
                 userSpamWarns.set(userId, 0);
 
                 const mutesCount = (userSpamMutes.get(userId) || 0) + 1;
@@ -443,7 +438,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 9. EVENTOS DE LOGS
+// 9. EVENTOS DE LOGS DE MENSAJES/IMÁGENES BORRADAS
 client.on('messageDelete', async (message) => {
     if (!message.guild || message.author?.bot) return;
 
@@ -466,17 +461,23 @@ client.on('messageDelete', async (message) => {
         )
         .setTimestamp();
 
+    const filesToSend = [];
+
+    // Si el mensaje borrado tenía archivos/fotos adjuntas
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first();
+        
+        // Re-subimos la imagen física al canal de logs como archivo
+        const file = new AttachmentBuilder(attachment.url, { name: attachment.name });
+        filesToSend.push(file);
+
+        // Si es una imagen, hacemos que aparezca como vista previa completa en el embed
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
-            embed.setImage(attachment.url);
-            embed.addFields({ name: '🖼️ Adjunto', value: `[Ver Imagen](${attachment.url})` });
-        } else {
-            embed.addFields({ name: '📁 Archivo Adjunto', value: `[${attachment.name}](${attachment.url})` });
+            embed.setImage(`attachment://${attachment.name}`);
         }
     }
 
-    logChannel.send({ embeds: [embed] }).catch(() => {});
+    logChannel.send({ embeds: [embed], files: filesToSend }).catch(err => console.error("Error al enviar log de borrado:", err));
 });
 
 client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
