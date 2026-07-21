@@ -85,6 +85,7 @@ function parseDuration(timeStr) {
 
 // MAPAS EN MEMORIA ANTI-SPAM
 const userMessages = new Map();     
+const userStickers = new Map();     
 const userSpamWarns = new Map();    
 const userSpamMutes = new Map();    
 
@@ -218,18 +219,32 @@ client.on('messageCreate', async (message) => {
         const userId = message.author.id;
         const now = Date.now();
 
+        // --- CHEQUEO DE SPAM DE STICKERS (Máximo 2 stickers en 5 segundos) ---
+        if (message.stickers.size > 0) {
+            if (!userStickers.has(userId)) userStickers.set(userId, []);
+            const stickerStamps = userStickers.get(userId);
+            stickerStamps.push(now);
+
+            const recentStickers = stickerStamps.filter(t => now - t < 5000);
+            userStickers.set(userId, recentStickers);
+
+            if (recentStickers.length > 2) {
+                violationType = 'Exceso / Spam de stickers';
+            }
+        }
+
         // --- CHEQUEO DE VELOCIDAD / FLOOD DE MENSAJES DISTINTOS ---
-        if (!userMessages.has(userId)) userMessages.set(userId, []);
-        const userStamps = userMessages.get(userId);
-        userStamps.push(now);
+        if (!violationType) {
+            if (!userMessages.has(userId)) userMessages.set(userId, []);
+            const userStamps = userMessages.get(userId);
+            userStamps.push(now);
 
-        // Mantiene solo las marcas de tiempo de los últimos 2.5 segundos
-        const recentStamps = userStamps.filter(t => now - t < 2500);
-        userMessages.set(userId, recentStamps);
+            const recentStamps = userStamps.filter(t => now - t < 2500);
+            userMessages.set(userId, recentStamps);
 
-        // Si envía más de 3 mensajes en menos de 2.5s (sin importar el texto)
-        if (recentStamps.length > 3) {
-            violationType = 'Flood de mensajes rápidos / Spam de envío';
+            if (recentStamps.length > 3) {
+                violationType = 'Flood de mensajes rápidos / Spam de envío';
+            }
         }
 
         // --- CHEQUEO DE ENLACES NO AUTORIZADOS ---
@@ -260,7 +275,7 @@ client.on('messageCreate', async (message) => {
             }
         }
 
-        // ACCIÓN DE SANCIÓN POR SPAM/FLOOD
+        // ACCIÓN DE SANCIÓN POR AUTOMODERACIÓN
         if (violationType) {
             await message.delete().catch(() => {});
 
@@ -268,7 +283,7 @@ client.on('messageCreate', async (message) => {
             userSpamWarns.set(userId, currentWarns);
 
             if (currentWarns < 3) {
-                const warnMsg = await message.channel.send(`${message.author}, por favor evita el spam/flood de mensajes. (Advertencia ${currentWarns}/3)\nMotivo: **${violationType}**`);
+                const warnMsg = await message.channel.send(`${message.author}, por favor evita el spam. (Advertencia ${currentWarns}/3)\nMotivo: **${violationType}**`);
                 setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
             } else {
                 userSpamWarns.set(userId, 0);
@@ -282,7 +297,7 @@ client.on('messageCreate', async (message) => {
                 await message.member.timeout(durationMs, reason).catch(() => {});
                 const sanction = addSanction(message.guild.id, userId, 'MUTE', client.user.tag, reason, durationText);
 
-                message.channel.send(`${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias por spam/flood. | ID Sanción: \`${sanction.id}\``);
+                message.channel.send(`${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias de automoderación. | ID Sanción: \`${sanction.id}\``);
             }
             return;
         }
@@ -294,12 +309,20 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift()?.toLowerCase();
 
-    // LISTA VÁLIDA DE COMANDOS (INCLUYE HELP)
+    // LISTA VÁLIDA DE COMANDOS
     const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist'];
     if (!validCommands.includes(command)) return; 
 
-    // SI NO ES MODERADOR, IGNORAR SILENCIOSAMENTE
-    if (!isMod) return;
+    // SI NO ES MODERADOR, MOSTRAR MENSAJE BURLÓN Y BORRARLO EN 2 SEGUNDOS
+    if (!isMod) {
+        const noPermMsg = await message.reply("Este comando es de administrador JJAJAJA, deja de intentar usarlo.").catch(() => {});
+        if (noPermMsg) {
+            setTimeout(() => {
+                noPermMsg.delete().catch(() => {});
+            }, 2000);
+        }
+        return;
+    }
 
     // COMANDO: HELP
     if (command === 'help') {
@@ -447,11 +470,18 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName, options, guild, user, channel } = interaction;
+  const { commandName, options, guild, user, channel, member } = interaction;
 
-  // /HELP
+  // VERIFICAR PERMISOS DE MODERACIÓN PARA SLASH COMMANDS
+  const isMod = member.permissions.has(PermissionFlagsBits.ManageMessages) || member.permissions.has(PermissionFlagsBits.Administrator);
+
+  // /HELP (Disponible para todos)
   if (commandName === 'help') {
     return interaction.reply({ embeds: [buildHelpEmbed()], ephemeral: true });
+  }
+
+  if (!isMod) {
+    return interaction.reply({ content: 'Este comando es de administrador JJAJAJA, deja de intentar usarlo.', ephemeral: true });
   }
 
   // /PURGE
@@ -501,17 +531,17 @@ client.on('interactionCreate', async interaction => {
   // /MUTE
   if (commandName === 'mute') {
     const targetUser = options.getUser('usuario');
-    const member = await guild.members.fetch(targetUser.id).catch(() => null);
+    const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
     const timeArg = options.getString('tiempo');
     const reason = options.getString('razon') || 'Razón no especificada';
 
-    if (!member) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
-    if (!member.moderatable) return interaction.reply({ content: 'No puedo silenciar a este usuario.', ephemeral: true });
+    if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
+    if (!targetMember.moderatable) return interaction.reply({ content: 'No puedo silenciar a este usuario.', ephemeral: true });
 
     const durationMs = parseDuration(timeArg);
     if (!durationMs) return interaction.reply({ content: 'Formato de tiempo inválido. Usa `10m`, `2h`, `1d`.', ephemeral: true });
 
-    await member.timeout(durationMs, reason);
+    await targetMember.timeout(durationMs, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'MUTE', user.tag, reason, timeArg);
 
     await interaction.reply({ content: `**${targetUser.tag}** ha sido silenciado por **${timeArg}** por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
@@ -520,13 +550,13 @@ client.on('interactionCreate', async interaction => {
   // /UNMUTE
   if (commandName === 'unmute') {
     const targetUser = options.getUser('usuario');
-    const member = await guild.members.fetch(targetUser.id).catch(() => null);
+    const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
     const reason = options.getString('razon') || 'Razón no especificada';
 
-    if (!member) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
-    if (!member.isCommunicationDisabled()) return interaction.reply({ content: 'Este usuario no está silenciado.', ephemeral: true });
+    if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
+    if (!targetMember.isCommunicationDisabled()) return interaction.reply({ content: 'Este usuario no está silenciado.', ephemeral: true });
 
-    await member.timeout(null, reason);
+    await targetMember.timeout(null, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'UNMUTE', user.tag, reason);
 
     await interaction.reply({ content: `**${targetUser.tag}** ya no está silenciado por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
@@ -535,13 +565,13 @@ client.on('interactionCreate', async interaction => {
   // /KICK
   if (commandName === 'kick') {
     const targetUser = options.getUser('usuario');
-    const member = await guild.members.fetch(targetUser.id).catch(() => null);
+    const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
     const reason = options.getString('razon') || 'Razón no especificada';
 
-    if (!member) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
-    if (!member.kickable) return interaction.reply({ content: 'No puedo expulsar a este usuario.', ephemeral: true });
+    if (!targetMember) return interaction.reply({ content: 'Usuario no encontrado.', ephemeral: true });
+    if (!targetMember.kickable) return interaction.reply({ content: 'No puedo expulsar a este usuario.', ephemeral: true });
 
-    await member.kick(reason);
+    await targetMember.kick(reason);
     const sanction = addSanction(guild.id, targetUser.id, 'KICK', user.tag, reason);
 
     await interaction.reply({ content: `**${targetUser.tag}** ha sido expulsado por **${user.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}` });
@@ -550,10 +580,10 @@ client.on('interactionCreate', async interaction => {
   // /BAN
   if (commandName === 'ban') {
     const targetUser = options.getUser('usuario');
-    const member = await guild.members.fetch(targetUser.id).catch(() => null);
+    const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
     const reason = options.getString('razon') || 'Razón no especificada';
 
-    if (member && !member.bannable) return interaction.reply({ content: 'No puedo banear a este usuario.', ephemeral: true });
+    if (targetMember && !targetMember.bannable) return interaction.reply({ content: 'No puedo banear a este usuario.', ephemeral: true });
 
     await guild.members.ban(targetUser.id, { reason });
     const sanction = addSanction(guild.id, targetUser.id, 'BAN', user.tag, reason);
