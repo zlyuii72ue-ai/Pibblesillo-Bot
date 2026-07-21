@@ -14,7 +14,7 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 
-// 1. SERVIDOR WEB PARA MANTENERLO 24/7 EN RAILWAY
+// 1. SERVIDOR WEB PARA RAILWAY 24/7
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -102,15 +102,35 @@ async function sendAndAutoDelete(channel, content, delay = 2000) {
     }
 }
 
-// MAPAS EN MEMORIA ANTI-SPAM
+// FUNCIÓN PARA ENVIAR LOGS AL CANAL DE SANCIÓN
+async function sendSanctionLog(guild, type, targetUser, moderatorTag, reason, duration = null) {
+    const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
+    if (!logChannel) return;
+
+    const embed = new EmbedBuilder()
+        .setTitle(`📌 Registro de Sanción: ${type}`)
+        .setColor(type === 'BAN' ? '#FF0000' : type === 'KICK' ? '#E67E22' : '#FFFF00')
+        .addFields(
+            { name: 'Usuario Affected', value: `<@${targetUser.id}> (\`${targetUser.id}\`)`, inline: true },
+            { name: 'Moderador', value: moderatorTag, inline: true },
+            { name: 'Razón', value: reason || 'No especificada', inline: false }
+        )
+        .setTimestamp();
+
+    if (duration) embed.addFields({ name: 'Duración', value: duration, inline: true });
+    if (targetUser.displayAvatarURL) embed.setThumbnail(targetUser.displayAvatarURL({ dynamic: true, size: 256 }));
+
+    logChannel.send({ embeds: [embed] }).catch(err => console.error("Error enviando log de sanción:", err));
+}
+
+// MAPAS ANTI-SPAM
 const userMessages = new Map();     
 const userStickers = new Map();     
 const userSpamWarns = new Map();    
 const userSpamMutes = new Map();    
 
-// 🎨 LISTA COMPLETA DE COLORES (NORMALES Y PASTEL)
+// LISTA DE COLORES
 const ALL_COLORS = [
-  // COLORES NORMALES
   { name: '🔴 Rojo', value: '#FF0000' },
   { name: '🔵 Azul', value: '#0099FF' },
   { name: '🟢 Verde', value: '#00FF00' },
@@ -122,8 +142,6 @@ const ALL_COLORS = [
   { name: '🟤 Marrón', value: '#795548' },
   { name: '🩵 Cyan / Turquesa', value: '#00FFFF' },
   { name: '🩷 Rosa Fuerte', value: '#FF1493' },
-
-  // COLORES PASTEL
   { name: '🌸 Rosa Pastel', value: '#FFB7B2' },
   { name: '🌺 Menta Pastel', value: '#B5EAD7' },
   { name: '🫐 Azul Pastel', value: '#A0C4FF' },
@@ -147,7 +165,7 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
 
-// 6. REGISTRO DE COMANDOS SLASH
+// 6. COMANDOS SLASH
 const commands = [
   {
     name: 'help',
@@ -167,7 +185,7 @@ const commands = [
         required: false,
         autocomplete: true 
       },
-      { name: 'imagen', description: 'Adjunta una foto o archivo (PNG, JPG, GIF, WEBP)', type: ApplicationCommandOptionType.Attachment, required: false },
+      { name: 'imagen', description: 'Adjunta una foto o archivo desde tu dispositivo', type: ApplicationCommandOptionType.Attachment, required: false },
       { name: 'imagen_url', description: 'O pega el enlace/URL directo de una imagen', type: ApplicationCommandOptionType.String, required: false },
       { name: 'canal', description: 'Canal donde se enviará (opcional)', type: ApplicationCommandOptionType.Channel, required: false }
     ]
@@ -244,9 +262,8 @@ client.once('clientReady', async () => {
   if (BOT_AVATAR_URL && BOT_AVATAR_URL.startsWith('http')) {
     try {
       await client.user.setAvatar(BOT_AVATAR_URL);
-      console.log('[Avatar] Foto de perfil del bot actualizada correctamente.');
     } catch (err) {
-      console.error('[Avatar] No se pudo cambiar el avatar:', err.message);
+      console.error('[Avatar] Error al cambiar avatar:', err.message);
     }
   }
 
@@ -255,7 +272,7 @@ client.once('clientReady', async () => {
     for (const guildId of guildIds) {
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commands });
     }
-    console.log('Todos los comandos Slash actualizados correctamente.');
+    console.log('Comandos Slash actualizados.');
   } catch (error) {
     console.error('Error registrando comandos Slash:', error);
   }
@@ -267,7 +284,7 @@ function buildHelpEmbed() {
     .setColor('#0099FF')
     .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
     .addFields(
-      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [imagen_url] [canal]`', value: 'Crea un embed con colores normales/pastel y soporte total para imágenes.' },
+      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [imagen_url] [canal]`', value: 'Crea un embed con colores normales/pastel y soporte completo de fotos.' },
       { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos: `10m`, `2h`, `1d`.' },
       { name: '🔊 `pibble unmute <@user|reply> [razón]`', value: 'Quita el silencio a un usuario.' },
       { name: '👢 `pibble kick <@user|reply> [razón]`', value: 'Expulsa a un usuario del servidor.' },
@@ -280,12 +297,13 @@ function buildHelpEmbed() {
     .setTimestamp();
 }
 
-// 7. AUTOMODERACIÓN Y COMANDOS DE TEXTO (pibble ...)
+// 7. EVENTO MESSAGE (AUTOMOD Y COMANDOS DE TEXTO)
 client.on('messageCreate', async (message) => {
     if (!message.guild || message.author.bot) return;
 
     const isMod = message.member.permissions.has(PermissionFlagsBits.ManageMessages) || message.member.permissions.has(PermissionFlagsBits.Administrator);
 
+    // AUTOMOD
     if (!isMod) {
         let violationType = null;
         const content = message.content || '';
@@ -300,9 +318,7 @@ client.on('messageCreate', async (message) => {
             const recentStickers = stickerStamps.filter(t => now - t < 5000);
             userStickers.set(userId, recentStickers);
 
-            if (recentStickers.length > 2) {
-                violationType = 'Exceso / Spam de stickers';
-            }
+            if (recentStickers.length > 2) violationType = 'Exceso / Spam de stickers';
         }
 
         if (!violationType) {
@@ -313,9 +329,7 @@ client.on('messageCreate', async (message) => {
             const recentStamps = userStamps.filter(t => now - t < 2500);
             userMessages.set(userId, recentStamps);
 
-            if (recentStamps.length > 3) {
-                violationType = 'Flood de mensajes rápidos / Spam de envío';
-            }
+            if (recentStamps.length > 3) violationType = 'Flood de mensajes rápidos / Spam de envío';
         }
 
         if (!violationType) {
@@ -363,6 +377,7 @@ client.on('messageCreate', async (message) => {
                 await message.member.timeout(durationMs, reason).catch(() => {});
                 const sanction = addSanction(message.guild.id, userId, 'MUTE', client.user.tag, reason, durationText);
 
+                sendSanctionLog(message.guild, 'MUTE', message.author, client.user.tag, reason, durationText);
                 sendAndAutoDelete(message.channel, `${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias. | ID: \`${sanction.id}\``, 5000);
             }
             return;
@@ -388,7 +403,7 @@ client.on('messageCreate', async (message) => {
     if (command === 'purge') {
         const amount = parseInt(args[0]);
         if (isNaN(amount) || amount < 1 || amount > 100) {
-            return replyAndAutoDelete(message, 'Indica una cantidad válida de mensajes entre 1 y 100. Ejemplo: `pibble purge 20`');
+            return replyAndAutoDelete(message, 'Indica una cantidad válida entre 1 y 100. Ejemplo: `pibble purge 20`');
         }
 
         await message.delete().catch(() => {});
@@ -445,6 +460,7 @@ client.on('messageCreate', async (message) => {
         return replyAndAutoDelete(message, { embeds: [embed] });
     }
 
+    // COMANDOS PERMANENTES DE SANCIÓN (NO SE BORRAN DEL CANAL)
     if (command === 'mute') {
         if (!targetMember) return replyAndAutoDelete(message, 'Menciona a un usuario o responde a su mensaje.');
         if (!targetMember.moderatable) return replyAndAutoDelete(message, 'No se puede silenciar a este usuario.');
@@ -459,7 +475,10 @@ client.on('messageCreate', async (message) => {
         await targetMember.timeout(durationMs, reason).catch(() => {});
 
         const sanction = addSanction(message.guild.id, targetMember.id, 'MUTE', message.author.tag, reason, timeArg);
-        sendAndAutoDelete(message.channel, `**${targetMember.user.tag}** ha sido silenciado por **${timeArg}**. | ID: \`${sanction.id}\``);
+        
+        // NO SE AUTODESTRUYE
+        await message.channel.send(`🔇 **${targetMember.user.tag}** ha sido silenciado por **${timeArg}**. | Razón: ${reason} | ID: \`${sanction.id}\``);
+        sendSanctionLog(message.guild, 'MUTE', targetMember.user, message.author.tag, reason, timeArg);
     }
 
     if (command === 'unmute') {
@@ -471,7 +490,9 @@ client.on('messageCreate', async (message) => {
 
         await targetMember.timeout(null, reason).catch(() => {});
         const sanction = addSanction(message.guild.id, targetMember.id, 'UNMUTE', message.author.tag, reason);
-        sendAndAutoDelete(message.channel, `**${targetMember.user.tag}** ya no está silenciado. | ID: \`${sanction.id}\``);
+
+        await message.channel.send(`🔊 **${targetMember.user.tag}** ya no está silenciado. | ID: \`${sanction.id}\``);
+        sendSanctionLog(message.guild, 'UNMUTE', targetMember.user, message.author.tag, reason);
     }
 
     if (command === 'ban') {
@@ -481,11 +502,15 @@ client.on('messageCreate', async (message) => {
         const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
 
         try {
+            const targetUser = await client.users.fetch(targetId);
             await message.guild.members.ban(targetId, { reason });
             const sanction = addSanction(message.guild.id, targetId, 'BAN', message.author.tag, reason);
-            sendAndAutoDelete(message.channel, `El usuario (\`${targetId}\`) ha sido baneado. | ID: \`${sanction.id}\``);
+
+            // NO SE AUTODESTRUYE
+            await message.channel.send(`🔨 El usuario **${targetUser.tag}** (\`${targetId}\`) ha sido baneado. | Razón: ${reason} | ID: \`${sanction.id}\``);
+            sendSanctionLog(message.guild, 'BAN', targetUser, message.author.tag, reason);
         } catch (e) {
-            replyAndAutoDelete(message, 'No se pudo banear al usuario. Verifica la ID o la jerarquía de roles.');
+            replyAndAutoDelete(message, 'No se pudo banear al usuario. Verifica el ID o los permisos.');
         }
     }
 
@@ -496,9 +521,12 @@ client.on('messageCreate', async (message) => {
         const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
 
         try {
+            const targetUser = await client.users.fetch(targetId);
             await message.guild.members.unban(targetId, reason);
             const sanction = addSanction(message.guild.id, targetId, 'UNBAN', message.author.tag, reason);
-            sendAndAutoDelete(message.channel, `Se ha desbaneado al usuario (\`${targetId}\`). | ID: \`${sanction.id}\``);
+
+            await message.channel.send(`🔓 Se ha desbaneado al usuario **${targetUser.tag}** (\`${targetId}\`). | ID: \`${sanction.id}\``);
+            sendSanctionLog(message.guild, 'UNBAN', targetUser, message.author.tag, reason);
         } catch (e) {
             replyAndAutoDelete(message, 'No se pudo desbanear al usuario. Verifica el ID.');
         }
@@ -513,14 +541,16 @@ client.on('messageCreate', async (message) => {
 
         await targetMember.kick(reason).catch(() => {});
         const sanction = addSanction(message.guild.id, targetMember.id, 'KICK', message.author.tag, reason);
-        sendAndAutoDelete(message.channel, `**${targetMember.user.tag}** ha sido expulsado. | ID: \`${sanction.id}\``);
+
+        // NO SE AUTODESTRUYE
+        await message.channel.send(`👢 **${targetMember.user.tag}** ha sido expulsado. | Razón: ${reason} | ID: \`${sanction.id}\``);
+        sendSanctionLog(message.guild, 'KICK', targetMember.user, message.author.tag, reason);
     }
 });
 
-// 8. INTERACCIONES (AQUÍ ESTÁ EL FIX COMPLETO PARA IMÁGENES)
+// 8. INTERACCIONES SLASH (ARREGLO DEFINITIVO PARA FOTOS EN EMBED)
 client.on('interactionCreate', async interaction => {
 
-  // AUTOCOMPLETADO DE COLORES NORMALES Y PASTEL
   if (interaction.isAutocomplete()) {
     if (interaction.commandName === 'embed') {
       const focusedValue = interaction.options.getFocused().toLowerCase();
@@ -551,6 +581,7 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ content: 'Este comando es de administrador JJAJAJA, deja de intentar usarlo.', ephemeral: true });
   }
 
+  // FIX DEFICITIVO DE FOTOS EN EMBED
   if (commandName === 'embed') {
     await interaction.deferReply({ ephemeral: true });
 
@@ -573,12 +604,9 @@ client.on('interactionCreate', async interaction => {
 
     const payload = { embeds: [embed] };
 
-    // LÓGICA DE PROCESAMIENTO DE IMÁGENES CORREGIDA
+    // Solución del envío de fotos:
     if (imageAttachment) {
-      // Re-enviar el archivo adjunto usando AttachmentBuilder vinculando el attachment://
-      const file = new AttachmentBuilder(imageAttachment.url, { name: imageAttachment.name });
-      embed.setImage(`attachment://${imageAttachment.name}`);
-      payload.files = [file];
+      embed.setImage(imageAttachment.url); // Usamos la URL generada en el CDN directo de Discord
     } else if (imageUrl && imageUrl.startsWith('http')) {
       embed.setImage(imageUrl);
     }
@@ -588,7 +616,7 @@ client.on('interactionCreate', async interaction => {
       await interaction.editReply({ content: `✅ Embed enviado exitosamente a ${targetChannel}.` });
     } catch (e) {
       console.error("Error enviando embed:", e);
-      await interaction.editReply({ content: '❌ Error al enviar el embed. Verifica que el bot tenga permisos para adjuntar archivos y enviar mensajes en ese canal.' });
+      await interaction.editReply({ content: '❌ Error al enviar el embed. Revisa los permisos del bot en ese canal.' });
     }
     return;
   }
@@ -603,7 +631,7 @@ client.on('interactionCreate', async interaction => {
       const deleted = await channel.bulkDelete(amount, true);
       await interaction.reply({ content: `Se eliminaron **${deleted.size}** mensajes.`, ephemeral: true });
     } catch (error) {
-      await interaction.reply({ content: 'No se pudieron eliminar mensajes de más de 14 días.', ephemeral: true });
+      await interaction.reply({ content: 'No se pudieron eliminar mensajes antiguos.', ephemeral: true });
     }
   }
 
@@ -648,7 +676,9 @@ client.on('interactionCreate', async interaction => {
     await targetMember.timeout(durationMs, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'MUTE', user.tag, reason, timeArg);
 
-    await interaction.reply({ content: `**${targetUser.tag}** ha sido silenciado por **${timeArg}**. | ID: \`${sanction.id}\`` });
+    await channel.send(`🔇 **${targetUser.tag}** ha sido silenciado por **${timeArg}**. | Razón: ${reason} | ID: \`${sanction.id}\``);
+    sendSanctionLog(guild, 'MUTE', targetUser, user.tag, reason, timeArg);
+    await interaction.reply({ content: 'Sanción aplicada.', ephemeral: true });
   }
 
   if (commandName === 'unmute') {
@@ -662,7 +692,9 @@ client.on('interactionCreate', async interaction => {
     await targetMember.timeout(null, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'UNMUTE', user.tag, reason);
 
-    await interaction.reply({ content: `**${targetUser.tag}** ya no está silenciado. | ID: \`${sanction.id}\`` });
+    await channel.send(`🔊 **${targetUser.tag}** ya no está silenciado. | ID: \`${sanction.id}\``);
+    sendSanctionLog(guild, 'UNMUTE', targetUser, user.tag, reason);
+    await interaction.reply({ content: 'Silencio removido.', ephemeral: true });
   }
 
   if (commandName === 'kick') {
@@ -676,7 +708,9 @@ client.on('interactionCreate', async interaction => {
     await targetMember.kick(reason);
     const sanction = addSanction(guild.id, targetUser.id, 'KICK', user.tag, reason);
 
-    await interaction.reply({ content: `**${targetUser.tag}** ha sido expulsado. | ID: \`${sanction.id}\`` });
+    await channel.send(`👢 **${targetUser.tag}** ha sido expulsado. | Razón: ${reason} | ID: \`${sanction.id}\``);
+    sendSanctionLog(guild, 'KICK', targetUser, user.tag, reason);
+    await interaction.reply({ content: 'Usuario expulsado.', ephemeral: true });
   }
 
   if (commandName === 'ban') {
@@ -686,9 +720,12 @@ client.on('interactionCreate', async interaction => {
     try {
       await guild.members.ban(targetUser.id, { reason });
       const sanction = addSanction(guild.id, targetUser.id, 'BAN', user.tag, reason);
-      await interaction.reply({ content: `**${targetUser.tag || targetUser.id}** ha sido baneado. | ID Sanción: \`${sanction.id}\`` });
+      
+      await channel.send(`🔨 **${targetUser.tag || targetUser.id}** ha sido baneado. | Razón: ${reason} | ID: \`${sanction.id}\``);
+      sendSanctionLog(guild, 'BAN', targetUser, user.tag, reason);
+      await interaction.reply({ content: 'Usuario baneado.', ephemeral: true });
     } catch (e) {
-      await interaction.reply({ content: 'No se pudo banear al usuario. Verifica la ID o la jerarquía de roles.', ephemeral: true });
+      await interaction.reply({ content: 'No se pudo banear al usuario. Verifica permisos o jerarquía.', ephemeral: true });
     }
   }
 
@@ -697,16 +734,20 @@ client.on('interactionCreate', async interaction => {
     const reason = options.getString('razon') || 'Razón no especificada';
 
     try {
+      const targetUser = await client.users.fetch(targetId);
       await guild.members.unban(targetId, reason);
       const sanction = addSanction(guild.id, targetId, 'UNBAN', user.tag, reason);
-      await interaction.reply({ content: `Se ha desbaneado al usuario (\`${targetId}\`). | ID: \`${sanction.id}\`` });
+
+      await channel.send(`🔓 Se ha desbaneado al usuario **${targetUser.tag}** (\`${targetId}\`). | ID: \`${sanction.id}\``);
+      sendSanctionLog(guild, 'UNBAN', targetUser, user.tag, reason);
+      await interaction.reply({ content: 'Usuario desbaneado.', ephemeral: true });
     } catch (e) {
       await interaction.reply({ content: 'No se pudo desbanear. Verifica el ID.', ephemeral: true });
     }
   }
 });
 
-// 9. LOGS DE MENSAJES Y AUDITORÍA
+// 9. AUDITORÍA DE BORRADO DE MENSAJES Y ACCIONES DE DISCORD
 client.on('messageDelete', async (message) => {
     if (!message.guild || message.author?.bot) return;
 
@@ -782,26 +823,6 @@ client.on('guildAuditLogEvent', async (auditLog, guild) => {
                  { name: 'Razón', value: reason || 'No especificada', inline: false }
              );
         logChannel.send({ embeds: [embed] }).catch(() => {});
-    }
-    else if (action === AuditLogEvent.MemberUpdate) {
-        const timeoutChange = changes?.find(c => c.key === 'communication_disabled_until');
-        if (timeoutChange) {
-            if (timeoutChange.new) {
-                const time = Math.floor(new Date(timeoutChange.new).getTime() / 1000);
-                embed.setTitle('Usuario Silenciado')
-                     .setColor('#FFFF00')
-                     .addFields(
-                         { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                         { name: 'Tiempo', value: `Hasta <t:${time}:R>`, inline: false },
-                         { name: 'Razón', value: reason || 'No especificada', inline: false }
-                     );
-            } else {
-                embed.setTitle('Silencio Removido')
-                     .setColor('#00FF00')
-                     .addFields({ name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true });
-            }
-            logChannel.send({ embeds: [embed] }).catch(() => {});
-        }
     }
 });
 
