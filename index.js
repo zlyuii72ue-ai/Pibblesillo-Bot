@@ -17,7 +17,7 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot activo 24/7 con Logs Visuales Mejorados!');
+  res.end('🤖 Bot activo 24/7 con Sistema Anti-Spam Progresivo!');
 }).listen(PORT, () => console.log(`[HTTP] Servidor listo en el puerto ${PORT}`));
 
 // 2. CONFIGURACIÓN, CREDENCIALES Y CANAL DE LOGS
@@ -74,8 +74,10 @@ function addSanction(guildId, userId, type, moderator, reason, duration = null) 
     return newSanction;
 }
 
-// Map para rastrear mensajes de usuarios (Anti-Flood)
-const userMessages = new Map();
+// Mapas en memoria para rastrear actividad y advertencias
+const userMessages = new Map();     // Rastrear tiempo entre mensajes
+const userSpamWarns = new Map();    // Contar advertencias (1/3, 2/3, 3/3)
+const userSpamMutes = new Map();    // Contar mutes recibidos por spam (1º, 2º, 3º+)
 
 // 5. CLIENTE DE DISCORD
 const client = new Client({ 
@@ -143,6 +145,8 @@ client.on('messageCreate', async (message) => {
     // A) AUTOMODERACIÓN (Ignora a Mods/Admins)
     // ==========================================
     if (!isMod) {
+        let isSpamming = false;
+
         // 1. ANTI-LINKS
         const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/i;
         if (linkRegex.test(message.content)) {
@@ -152,17 +156,14 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // 2. ANTI-EMOJIS MASIVOS
+        // 2. ANTI-EMOJIS MASIVOS (>5 emojis)
         const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:[a-zA-Z0-9_]+:[0-9]+>)/g;
         const matches = message.content.match(emojiRegex);
         if (matches && matches.length > 5) {
-            await message.delete().catch(() => {});
-            const warnMsg = await message.channel.send(`⚠️ ${message.author}, no envíes tantos emojis.`);
-            setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
-            return;
+            isSpamming = true;
         }
 
-        // 3. ANTI-FLOOD / ANTI-SPAM
+        // 3. ANTI-FLOOD (Más de 4 mensajes en 3 segundos)
         const userId = message.author.id;
         const now = Date.now();
         if (!userMessages.has(userId)) userMessages.set(userId, []);
@@ -173,9 +174,47 @@ client.on('messageCreate', async (message) => {
         userMessages.set(userId, recentTimestamps);
 
         if (recentTimestamps.length > 4) {
+            isSpamming = true;
+        }
+
+        // 🚨 SI EL USUARIO HIZO SPAM O FLOOD:
+        if (isSpamming) {
             await message.delete().catch(() => {});
-            const warnMsg = await message.channel.send(`⚠️ ${message.author}, no hagas spam.`);
-            setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
+
+            // Sumar advertencia (1/3, 2/3, 3/3)
+            const currentWarns = (userSpamWarns.get(userId) || 0) + 1;
+            userSpamWarns.set(userId, currentWarns);
+
+            if (currentWarns < 3) {
+                // ADVERTENCIAS 1 Y 2
+                const warnMsg = await message.channel.send(`⚠️ ${message.author}, ¡deja de spammear! (**Advertencia ${currentWarns}/3**)`);
+                setTimeout(() => warnMsg.delete().catch(() => {}), 6000);
+            } else {
+                // ADVERTENCIA 3: APLICAR MUTE PROGRESIVO
+                userSpamWarns.set(userId, 0); // Reiniciar conteo de advertencias
+
+                const mutesCount = (userSpamMutes.get(userId) || 0) + 1;
+                userSpamMutes.set(userId, mutesCount);
+
+                let durationMs = 3600000; // 1 Hora por defecto (1er mute)
+                let durationText = '1h';
+
+                if (mutesCount === 2) {
+                    durationMs = 10800000; // 3 Horas (2do mute)
+                    durationText = '3h';
+                } else if (mutesCount >= 3) {
+                    durationMs = 36000000; // 10 Horas (3er mute o superior)
+                    durationText = '10h';
+                }
+
+                const reason = `Spam/Flood recurrente (Mute #${mutesCount})`;
+                await message.member.timeout(durationMs, reason).catch(() => {});
+
+                // Registrar en el historial de sanciones
+                const sanction = addSanction(message.guild.id, userId, 'MUTE', client.user.tag, reason, durationText);
+
+                message.channel.send(`🔇 ${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias de spam. | ID: \`${sanction.id}\``);
+            }
             return;
         }
     }
@@ -340,7 +379,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 9. EVENTOS DE LOGS MEJORADOS CON IMÁGENES Y FOTOS DE PERFIL
+// 9. EVENTOS DE LOGS
 client.on('messageDelete', async (message) => {
     if (!message.guild || message.author?.bot) return;
 
@@ -363,7 +402,6 @@ client.on('messageDelete', async (message) => {
         )
         .setTimestamp();
 
-    // Capturar si el mensaje contenía una imagen o archivo adjunto
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first();
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
