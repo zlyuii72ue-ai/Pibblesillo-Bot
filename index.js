@@ -17,7 +17,7 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot activo 24/7 con Respuestas Directas y Moderación Avanzada!');
+  res.end('🤖 Bot activo 24/7 con soporte de GIFs y Moderación Avanzada!');
 }).listen(PORT, () => console.log(`[HTTP] Servidor listo en el puerto ${PORT}`));
 
 // 2. CONFIGURACIÓN, CREDENCIALES Y CANAL DE LOGS
@@ -148,10 +148,26 @@ client.on('messageCreate', async (message) => {
         let violationType = null;
         const content = message.content || '';
 
-        // 1. DETECCIÓN DE ENLACES / LINKS NO AUTORIZADOS
-        const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/i;
-        if (linkRegex.test(content)) {
-            violationType = 'Envío de enlaces no autorizados';
+        // 1. DETECCIÓN DE ENLACES / LINKS NO AUTORIZADOS (Permite GIFs)
+        const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/gi;
+        const linksFound = content.match(linkRegex);
+
+        if (linksFound) {
+            // Verificar si los links encontrados corresponden a GIFs o plataformas de GIFs
+            const gifDomains = ['tenor.com', 'giphy.com', 'imgur.com', 'media.discordapp.net', 'cdn.discordapp.com'];
+            
+            const hasUnauthorizedLink = linksFound.some(link => {
+                const lowerLink = link.toLowerCase();
+                // Permitir si termina en .gif o si proviene de una plataforma de GIFs permitida
+                const isGifFile = lowerLink.includes('.gif');
+                const isGifDomain = gifDomains.some(domain => lowerLink.includes(domain));
+                
+                return !(isGifFile || isGifDomain);
+            });
+
+            if (hasUnauthorizedLink) {
+                violationType = 'Envío de enlaces no autorizados';
+            }
         }
 
         // 2. DETECCIÓN DE EXCESO DE TAGS / MENCIONES (> 4 menciones)
@@ -247,7 +263,7 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // Funnel para obtener el objetivo (por Mención o por Respuesta)
+    // Obtener usuario (por Mención o respondiendo mensaje)
     let targetMember = message.mentions.members.first();
     let isReply = false;
 
