@@ -18,24 +18,24 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot activo 24/7 con recuperación de fotos borradas!');
+  res.end('Servidor activo 24/7');
 }).listen(PORT, () => console.log(`[HTTP] Servidor listo en el puerto ${PORT}`));
 
 // 2. CONFIGURACIÓN, CREDENCIALES Y CANAL DE LOGS
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CLIENT_ID = process.env.CLIENT_ID; 
 
-// 🎯 ID DE TU CANAL DE LOGS
+// ID DE TU CANAL DE LOGS
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '1528201242407342100'; 
 
 if (!TOKEN || !CLIENT_ID) {
-    console.error("❌ ERROR: Agrega DISCORD_TOKEN y CLIENT_ID en las variables.");
+    console.error("ERROR: Agrega DISCORD_TOKEN y CLIENT_ID en las variables.");
     process.exit(1);
 }
 
 // 3. ESCUDO ANTI-CRASH
-process.on('unhandledRejection', reason => console.error('🛡️ [Anti-Crash]:', reason));
-process.on('uncaughtException', err => console.error('🛡️ [Anti-Crash]:', err));
+process.on('unhandledRejection', reason => console.error('[Anti-Crash]:', reason));
+process.on('uncaughtException', err => console.error('[Anti-Crash]:', err));
 
 // 4. BASE DE DATOS LOCAL DE SANCIONES (sanctions.json)
 const sanctionsFile = './sanctions.json';
@@ -96,7 +96,7 @@ const client = new Client({
 const commands = [
   {
     name: 'embed',
-    description: 'Crea un mensaje embed súper personalizado',
+    description: 'Crea un mensaje embed personalizado',
     default_member_permissions: String(PermissionFlagsBits.Administrator),
     options: [
       { name: 'titulo', description: 'Título del embed', type: ApplicationCommandOptionType.String, required: true },
@@ -123,16 +123,16 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 client.once('clientReady', async () => {
-  console.log(`🚀 Bot conectado como: ${client.user.tag}`);
-  console.log(`📌 Canal de logs vinculado: ${LOG_CHANNEL_ID}`);
+  console.log(`Bot conectado como: ${client.user.tag}`);
+  console.log(`Canal de logs vinculado: ${LOG_CHANNEL_ID}`);
   try {
     const guildIds = client.guilds.cache.map(guild => guild.id);
     for (const guildId of guildIds) {
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commands });
     }
-    console.log('✅ Comandos /embed y /hist registrados.');
+    console.log('Comandos /embed y /hist registrados.');
   } catch (error) {
-    console.error('❌ Error registrando comandos Slash:', error);
+    console.error('Error registrando comandos Slash:', error);
   }
 });
 
@@ -207,7 +207,7 @@ client.on('messageCreate', async (message) => {
             violationType = violationType || 'Flood de mensajes rápidos';
         }
 
-        // 🚨 SI SE DETECTÓ CUALQUIER INFRACCIÓN:
+        // SI SE DETECTÓ CUALQUIER INFRACCIÓN:
         if (violationType) {
             await message.delete().catch(() => {});
 
@@ -216,7 +216,7 @@ client.on('messageCreate', async (message) => {
 
             if (currentWarns < 3) {
                 const warnMsg = await message.channel.send(
-                    `⚠️ ${message.author}, ¡deja el spam/flood/tags/links! (**Advertencia ${currentWarns}/3**)\n*Motivo:* ${violationType}`
+                    `${message.author}, evite el spam/flood/tags/links. (Advertencia ${currentWarns}/3)\nMotivo: ${violationType}`
                 );
                 setTimeout(() => warnMsg.delete().catch(() => {}), 6000);
             } else {
@@ -242,7 +242,7 @@ client.on('messageCreate', async (message) => {
                 const sanction = addSanction(message.guild.id, userId, 'MUTE', client.user.tag, reason, durationText);
 
                 message.channel.send(
-                    `🔇 ${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias de automoderación. | ID: \`${sanction.id}\``
+                    `${message.author} ha sido silenciado por **${durationText}** tras acumular 3 advertencias de automoderación. | ID: \`${sanction.id}\``
                 );
             }
             return;
@@ -253,7 +253,7 @@ client.on('messageCreate', async (message) => {
     // B) COMANDOS DE MODERACIÓN (pibble)
     // ==========================================
     if (!message.content.toLowerCase().startsWith('pibble ')) return;
-    if (!isMod) return message.reply('❌ No tienes permisos de moderación.').catch(() => {});
+    if (!isMod) return message.reply('No tienes permisos de moderación.').catch(() => {});
 
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift().toLowerCase();
@@ -274,10 +274,10 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // 🔨 BAN
+    // BAN
     if (command === 'ban') {
-        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje. Ej: `pibble ban [razón]`');
-        if (!targetMember.bannable) return message.reply('❌ No puedo banear a este usuario.');
+        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje. Ej: `pibble ban [razón]`');
+        if (!targetMember.bannable) return message.reply('No se puede banear a este usuario.');
 
         const reasonIndex = isReply ? 0 : 1;
         const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
@@ -285,10 +285,10 @@ client.on('messageCreate', async (message) => {
         await targetMember.ban({ reason }).catch(() => {});
 
         const sanction = addSanction(message.guild.id, targetMember.id, 'BAN', message.author.tag, reason);
-        message.channel.send(`🔨 **${targetMember.user.tag}** ha sido baneado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ha sido baneado por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
     }
 
-    // 🔓 UNBAN
+    // UNBAN
     if (command === 'unban') {
         let targetId = targetMember ? targetMember.id : args[0]?.replace(/[<@!>]/g, '');
 
@@ -299,7 +299,7 @@ client.on('messageCreate', async (message) => {
             } catch (e) {}
         }
 
-        if (!targetId) return message.reply('⚠️ Indica el ID del usuario, menciónalo o responde a su mensaje. Ej: `pibble unban 123456789012345678 [razón]`');
+        if (!targetId) return message.reply('Indica el ID del usuario, menciónalo o responde a su mensaje. Ej: `pibble unban 123456789012345678 [razón]`');
 
         const reasonIndex = (isReply || targetMember) ? 0 : 1;
         const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
@@ -307,16 +307,16 @@ client.on('messageCreate', async (message) => {
         try {
             await message.guild.members.unban(targetId, reason);
             const sanction = addSanction(message.guild.id, targetId, 'UNBAN', message.author.tag, reason);
-            message.channel.send(`🔓 Se ha desbaneado al usuario (\`${targetId}\`) por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+            message.channel.send(`Se ha desbaneado al usuario (\`${targetId}\`) por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
         } catch (error) {
-            message.reply('❌ No se pudo desbanear al usuario. Verifica que el ID sea correcto o que el usuario esté baneado.').catch(() => {});
+            message.reply('No se pudo desbanear al usuario. Verifica que el ID sea correcto o que el usuario esté baneado.').catch(() => {});
         }
     }
 
-    // 👢 KICK
+    // KICK
     if (command === 'kick') {
-        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje. Ej: `pibble kick [razón]`');
-        if (!targetMember.kickable) return message.reply('❌ No puedo expulsar a este usuario.');
+        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje. Ej: `pibble kick [razón]`');
+        if (!targetMember.kickable) return message.reply('No se puede expulsar a este usuario.');
 
         const reasonIndex = isReply ? 0 : 1;
         const reason = args.slice(reasonIndex).join(' ') || 'Razón no especificada';
@@ -324,40 +324,40 @@ client.on('messageCreate', async (message) => {
         await targetMember.kick(reason).catch(() => {});
 
         const sanction = addSanction(message.guild.id, targetMember.id, 'KICK', message.author.tag, reason);
-        message.channel.send(`👢 **${targetMember.user.tag}** ha sido expulsado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ha sido expulsado por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
     }
 
-    // 🔇 MUTE
+    // MUTE
     if (command === 'mute') {
-        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje. Ej: `pibble mute <tiempo> [razón]`');
-        if (!targetMember.moderatable) return message.reply('❌ No puedo silenciar a este usuario.');
+        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje. Ej: `pibble mute <tiempo> [razón]`');
+        if (!targetMember.moderatable) return message.reply('No se puede silenciar a este usuario.');
 
         const timeArg = isReply ? args[0] : args[1];
         const reason = isReply ? args.slice(1).join(' ') || 'Razón no especificada' : args.slice(2).join(' ') || 'Razón no especificada';
 
-        if (!timeArg) return message.reply('⚠️ Especifica el tiempo. Ej: `pibble mute 10m` o `pibble mute @usuario 10m`');
+        if (!timeArg) return message.reply('Especifica el tiempo. Ej: `pibble mute 10m` o `pibble mute @usuario 10m`');
 
         const timeMultipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
         const unit = timeArg.slice(-1).toLowerCase();
         const num = parseInt(timeArg.slice(0, -1));
 
-        if (isNaN(num) || !timeMultipliers[unit]) return message.reply('⚠️ Formato de tiempo inválido. Usa `10m`, `2h`, `10d`, etc.');
+        if (isNaN(num) || !timeMultipliers[unit]) return message.reply('Formato de tiempo inválido. Usa `10m`, `2h`, `10d`, etc.');
 
         const durationMs = num * timeMultipliers[unit];
-        if (durationMs > 2419200000) return message.reply('⚠️ El tiempo máximo es 28 días.');
+        if (durationMs > 2419200000) return message.reply('El tiempo máximo es 28 días.');
 
         await targetMember.timeout(durationMs, reason).catch(() => {});
 
         const sanction = addSanction(message.guild.id, targetMember.id, 'MUTE', message.author.tag, reason, timeArg);
-        message.channel.send(`🔇 **${targetMember.user.tag}** ha sido silenciado por **${timeArg}** por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ha sido silenciado por **${timeArg}** por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
     }
 
-    // 🔊 UNMUTE
+    // UNMUTE
     if (command === 'unmute') {
-        if (!targetMember) return message.reply('⚠️ Menciona a un usuario o responde a su mensaje.');
+        if (!targetMember) return message.reply('Menciona a un usuario o responde a su mensaje.');
 
         if (!targetMember.isCommunicationDisabled()) {
-            return message.reply('⚠️ Este usuario no está silenciado.');
+            return message.reply('Este usuario no está silenciado.');
         }
 
         const reasonIndex = isReply ? 0 : 1;
@@ -366,7 +366,7 @@ client.on('messageCreate', async (message) => {
         await targetMember.timeout(null, reason).catch(() => {});
 
         const sanction = addSanction(message.guild.id, targetMember.id, 'UNMUTE', message.author.tag, reason);
-        message.channel.send(`🔊 **${targetMember.user.tag}** ya no está silenciado por **${message.author.tag}**. | ID: \`${sanction.id}\`\n**Razón:** ${reason}`);
+        message.channel.send(`**${targetMember.user.tag}** ya no está silenciado por **${message.author.tag}**. | ID: \`${sanction.id}\`\nRazón: ${reason}`);
     }
 });
 
@@ -375,14 +375,14 @@ client.on('interactionCreate', async interaction => {
   if (interaction.isAutocomplete()) {
     const focusedValue = interaction.options.getFocused();
     const opcionesColor = [
-        { name: '🔴 Rojo', value: '#FF0000' },
-        { name: '🔵 Azul', value: '#0000FF' },
-        { name: '🟢 Verde', value: '#00FF00' },
-        { name: '🟡 Amarillo', value: '#FFFF00' },
-        { name: '🟠 Naranja', value: '#FFA500' },
-        { name: '🟣 Morado', value: '#800080' },
-        { name: '⚪ Blanco', value: '#FFFFFF' },
-        { name: '⚫ Negro', value: '#000000' }
+        { name: 'Rojo', value: '#FF0000' },
+        { name: 'Azul', value: '#0000FF' },
+        { name: 'Verde', value: '#00FF00' },
+        { name: 'Amarillo', value: '#FFFF00' },
+        { name: 'Naranja', value: '#FFA500' },
+        { name: 'Morado', value: '#800080' },
+        { name: 'Blanco', value: '#FFFFFF' },
+        { name: 'Negro', value: '#000000' }
     ];
     const filtrado = opcionesColor.filter(opcion => 
         opcion.name.toLowerCase().includes(focusedValue.toLowerCase()) || 
@@ -414,23 +414,23 @@ client.on('interactionCreate', async interaction => {
 
     if (userSanctions.length === 0) {
       return interaction.reply({ 
-        content: `✅ El usuario **${user.tag}** no tiene ninguna sanción o registro.`, 
+        content: `El usuario **${user.tag}** no tiene ninguna sanción o registro.`, 
         ephemeral: true 
       });
     }
 
     const embed = new EmbedBuilder()
-      .setTitle(`📋 Historial de Sanciones: ${user.tag}`)
+      .setTitle(`Historial de Sanciones: ${user.tag}`)
       .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
       .setColor('#FFA500')
       .setFooter({ text: `Total de registros: ${userSanctions.length}` })
       .setTimestamp();
 
     userSanctions.forEach((s) => {
-      const durationText = s.duration ? ` | **Duración:** ${s.duration}` : '';
+      const durationText = s.duration ? ` | Duración: ${s.duration}` : '';
       embed.addFields({
-        name: `🔹 [${s.type}] - ID: ${s.id}`,
-        value: `**Razón:** ${s.reason}\n**Moderador:** ${s.moderator}${durationText}\n**Fecha:** <t:${s.timestamp}:R>`
+        name: `[${s.type}] - ID: ${s.id}`,
+        value: `Razón: ${s.reason}\nModerador: ${s.moderator}${durationText}\nFecha: <t:${s.timestamp}:R>`
       });
     });
 
@@ -449,15 +449,15 @@ client.on('messageDelete', async (message) => {
     const member = message.member;
 
     const embed = new EmbedBuilder()
-        .setTitle('🗑️ Mensaje / Imagen Borrada')
+        .setTitle('Mensaje / Imagen Borrada')
         .setColor('#FF5555')
         .setThumbnail(author.displayAvatarURL({ dynamic: true, size: 256 }))
         .addFields(
-            { name: '👤 Usuario', value: `${author.tag}`, inline: true },
-            { name: '📛 Nombre', value: `${member ? member.displayName : author.username}`, inline: true },
-            { name: '🆔 ID', value: `\`${author.id}\``, inline: true },
-            { name: '📍 Canal', value: `<#${message.channel.id}>`, inline: false },
-            { name: '📝 Contenido', value: message.content || '*(Sin contenido de texto)*' }
+            { name: 'Usuario', value: `${author.tag}`, inline: true },
+            { name: 'Nombre', value: `${member ? member.displayName : author.username}`, inline: true },
+            { name: 'ID', value: `\`${author.id}\``, inline: true },
+            { name: 'Canal', value: `<#${message.channel.id}>`, inline: false },
+            { name: 'Contenido', value: message.content || '*(Sin contenido de texto)*' }
         )
         .setTimestamp();
 
@@ -471,7 +471,7 @@ client.on('messageDelete', async (message) => {
         const file = new AttachmentBuilder(attachment.url, { name: attachment.name });
         filesToSend.push(file);
 
-        // Si es una imagen, hacemos que aparezca como vista previa completa en el embed
+        // Vista previa de la imagen en el embed
         if (attachment.contentType && attachment.contentType.startsWith('image/')) {
             embed.setImage(`attachment://${attachment.name}`);
         }
@@ -493,38 +493,38 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
     if (avatarUrl) embed.setThumbnail(avatarUrl);
 
     if (action === AuditLogEvent.MemberKick) {
-        embed.setTitle('👢 Usuario Expulsado')
+        embed.setTitle('Usuario Expulsado')
              .setColor('#FFA500')
              .addFields(
-                 { name: '👤 Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                 { name: '📛 Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                 { name: '🆔 ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                 { name: '🛡️ Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
-                 { name: '📋 Razón', value: reason || 'No especificada', inline: false }
+                 { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
+                 { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
+                 { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
+                 { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
+                 { name: 'Razón', value: reason || 'No especificada', inline: false }
              );
         logChannel.send({ embeds: [embed] }).catch(() => {});
     }
     else if (action === AuditLogEvent.MemberBanAdd) {
-        embed.setTitle('🔨 Usuario Baneado')
+        embed.setTitle('Usuario Baneado')
              .setColor('#FF0000')
              .addFields(
-                 { name: '👤 Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                 { name: '📛 Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                 { name: '🆔 ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                 { name: '🛡️ Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
-                 { name: '📋 Razón', value: reason || 'No especificada', inline: false }
+                 { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
+                 { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
+                 { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
+                 { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
+                 { name: 'Razón', value: reason || 'No especificada', inline: false }
              );
         logChannel.send({ embeds: [embed] }).catch(() => {});
     }
     else if (action === AuditLogEvent.MemberBanRemove) {
-        embed.setTitle('🔓 Usuario Desbaneado')
+        embed.setTitle('Usuario Desbaneado')
              .setColor('#00FF00')
              .addFields(
-                 { name: '👤 Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                 { name: '📛 Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                 { name: '🆔 ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                 { name: '🛡️ Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
-                 { name: '📋 Razón', value: reason || 'No especificada', inline: false }
+                 { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
+                 { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
+                 { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
+                 { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
+                 { name: 'Razón', value: reason || 'No especificada', inline: false }
              );
         logChannel.send({ embeds: [embed] }).catch(() => {});
     }
@@ -533,24 +533,24 @@ client.on('guildAuditLogEntryCreate', async (auditLog, guild) => {
         if (timeoutChange) {
             if (timeoutChange.new) {
                 const time = Math.floor(new Date(timeoutChange.new).getTime() / 1000);
-                embed.setTitle('🔇 Usuario Silenciado')
+                embed.setTitle('Usuario Silenciado')
                      .setColor('#FFFF00')
                      .addFields(
-                         { name: '👤 Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                         { name: '📛 Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                         { name: '🆔 ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                         { name: '⏳ Tiempo', value: `Hasta <t:${time}:R>`, inline: false },
-                         { name: '🛡️ Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
-                         { name: '📋 Razón', value: reason || 'No especificada', inline: false }
+                         { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
+                         { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
+                         { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
+                         { name: 'Tiempo', value: `Hasta <t:${time}:R>`, inline: false },
+                         { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false },
+                         { name: 'Razón', value: reason || 'No especificada', inline: false }
                      );
             } else {
-                embed.setTitle('🔊 Silencio Removido')
+                embed.setTitle('Silencio Removido')
                      .setColor('#00FF00')
                      .addFields(
-                         { name: '👤 Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
-                         { name: '📛 Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
-                         { name: '🆔 ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
-                         { name: '🛡️ Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false }
+                         { name: 'Usuario', value: targetUser ? `${targetUser.tag}` : 'Desconocido', inline: true },
+                         { name: 'Nombre', value: targetUser ? `${targetUser.username}` : 'Desconocido', inline: true },
+                         { name: 'ID', value: targetUser ? `\`${targetUser.id}\`` : 'Desconocido', inline: true },
+                         { name: 'Moderador', value: executor ? `${executor.tag}` : 'Desconocido', inline: false }
                      );
             }
             logChannel.send({ embeds: [embed] }).catch(() => {});
