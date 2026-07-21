@@ -18,7 +18,7 @@ const fs = require('fs');
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('🤖 Bot activo 24/7 sin fallos!');
+  res.end('🤖 Bot activo 24/7 con Automoderación!');
 }).listen(PORT, () => console.log(`[HTTP] Servidor listo en el puerto ${PORT}`));
 
 // 2. CONFIGURACIÓN Y CREDENCIALES
@@ -30,7 +30,7 @@ if (!TOKEN || !CLIENT_ID) {
     process.exit(1);
 }
 
-// 3. ESCUDO ANTI-CRASH (Evita que se apague por errores)
+// 3. ESCUDO ANTI-CRASH
 process.on('unhandledRejection', reason => console.error('🛡️ [Anti-Crash]:', reason));
 process.on('uncaughtException', err => console.error('🛡️ [Anti-Crash]:', err));
 
@@ -56,18 +56,22 @@ function getLogChannel(guildId) {
     return null;
 }
 
+// Map para rastrear mensajes de usuarios (Anti-Flood)
+const userMessages = new Map();
+
 // 5. CLIENTE DE DISCORD CON INTENTS
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // Activar en Discord Developer Portal -> Bot -> Intents
-    GatewayIntentBits.GuildModeration 
+    GatewayIntentBits.MessageContent, 
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildMembers
   ],
   partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
 
-// 6. COMANDOS
+// 6. COMANDOS SLASH (/embed, /canalsetup)
 const commands = [
   {
     name: 'embed',
@@ -90,35 +94,130 @@ const commands = [
   }
 ];
 
-// 7. REGISTRO DE COMANDOS EN DISCORD
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 client.once('clientReady', async () => {
   console.log(`🚀 Bot conectado como: ${client.user.tag}`);
-  
-  // Registra los comandos al instante en CADA servidor donde esté el bot
   try {
     const guildIds = client.guilds.cache.map(guild => guild.id);
     for (const guildId of guildIds) {
       await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: commands });
     }
-    console.log('✅ ¡Comanditos /embed y /canalsetup registrados al instante!');
+    console.log('✅ Comandos Slash registrados.');
   } catch (error) {
     console.error('❌ Error registrando comandos:', error);
   }
 });
 
-// Registrar comandos si entra a un servidor nuevo
-client.on('guildCreate', async (guild) => {
-  try {
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guild.id), { body: commands });
-  } catch (e) {}
+// 7. AUTOMODERACIÓN Y COMANDOS DE TEXTO (pibble)
+client.on('messageCreate', async (message) => {
+    if (!message.guild || message.author.bot) return;
+
+    const isMod = message.member.permissions.has(PermissionFlagsBits.ManageMessages) || message.member.permissions.has(PermissionFlagsBits.Administrator);
+
+    // ==========================================
+    // A) AUTOMODERACIÓN (Ignora a Mods/Admins)
+    // ==========================================
+    if (!isMod) {
+        // 1. ANTI-LINKS
+        const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/i;
+        if (linkRegex.test(message.content)) {
+            await message.delete().catch(() => {});
+            const warnMsg = await message.channel.send(`⚠️ ${message.author}, los enlaces no están permitidos en este servidor.`);
+            setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
+            return;
+        }
+
+        // 2. ANTI-EMOJIS MASIVOS (Máximo 5 emojis por mensaje)
+        const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:[a-zA-Z0-9_]+:[0-9]+>)/g;
+        const matches = message.content.match(emojiRegex);
+        if (matches && matches.length > 5) {
+            await message.delete().catch(() => {});
+            const warnMsg = await message.channel.send(`⚠️ ${message.author}, no envíes tantos emojis a la vez.`);
+            setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
+            return;
+        }
+
+        // 3. ANTI-FLOOD / ANTI-SPAM (4 mensajes en menos de 3 segundos)
+        const userId = message.author.id;
+        const now = Date.now();
+        if (!userMessages.has(userId)) {
+            userMessages.set(userId, []);
+        }
+        const timestamps = userMessages.get(userId);
+        timestamps.push(now);
+
+        // Limpiar registros antiguos
+        const recentTimestamps = timestamps.filter(t => now - t < 3000);
+        userMessages.set(userId, recentTimestamps);
+
+        if (recentTimestamps.length > 4) {
+            await message.delete().catch(() => {});
+            const warnMsg = await message.channel.send(`⚠️ ${message.author}, por favor no hagas spam / flood.`);
+            setTimeout(() => warnMsg.delete().catch(() => {}), 5000);
+            return;
+        }
+    }
+
+    // ==========================================
+    // B) COMANDOS DE MODERACIÓN (pibble ...)
+    // ==========================================
+    if (!message.content.toLowerCase().startsWith('pibble ')) return;
+    if (!isMod) return message.reply('❌ No tienes permisos para usar mandos de moderación.').catch(() => {});
+
+    const args = message.content.slice(7).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    // 🔨 PIBBLE BAN
+    if (command === 'ban') {
+        const target = message.mentions.members.first();
+        if (!target) return message.reply('⚠️ Debes mencionar a un usuario para banear. Ej: `pibble ban @usuario spam`');
+        if (!target.bannable) return message.reply('❌ No puedo banear a este usuario (su rol es superior o igual al mío).');
+
+        const reason = args.slice(1).join(' ') || 'Razón no especificada';
+        await target.ban({ reason }).catch(() => {});
+        message.channel.send(`🔨 **${target.user.tag}** ha sido baneado por **${message.author.tag}**. Razón: ${reason}`);
+    }
+
+    // 👢 PIBBLE KICK
+    if (command === 'kick') {
+        const target = message.mentions.members.first();
+        if (!target) return message.reply('⚠️ Debes mencionar a un usuario para expulsar. Ej: `pibble kick @usuario conducta`');
+        if (!target.kickable) return message.reply('❌ No puedo expulsar a este usuario.');
+
+        const reason = args.slice(1).join(' ') || 'Razón no especificada';
+        await target.kick(reason).catch(() => {});
+        message.channel.send(`👢 **${target.user.tag}** ha sido expulsado por **${message.author.tag}**. Razón: ${reason}`);
+    }
+
+    // 🔇 PIBBLE MUTE (ej: pibble mute @usuario 10d spam)
+    if (command === 'mute') {
+        const target = message.mentions.members.first();
+        const timeArg = args[1]; // ej: 10m, 2h, 10d
+        const reason = args.slice(2).join(' ') || 'Razón no especificada';
+
+        if (!target || !timeArg) return message.reply('⚠️ Uso correcto: `pibble mute @usuario <tiempo> [razón]`\nEjemplos de tiempo: `10m` (minutos), `2h` (horas), `10d` (días).');
+        if (!target.moderatable) return message.reply('❌ No puedo silenciar a este usuario.');
+
+        // Convertir tiempo a milisegundos
+        const timeMultipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+        const unit = timeArg.slice(-1).toLowerCase();
+        const num = parseInt(timeArg.slice(0, -1));
+
+        if (isNaN(num) || !timeMultipliers[unit]) {
+            return message.reply('⚠️ Formato de tiempo inválido. Usa `s` (segundos), `m` (minutos), `h` (horas) o `d` (días). Ej: `10m` o `10d`.');
+        }
+
+        const durationMs = num * timeMultipliers[unit];
+        if (durationMs > 2419200000) return message.reply('⚠️ El tiempo máximo de mute en Discord es 28 días.');
+
+        await target.timeout(durationMs, reason).catch(() => {});
+        message.channel.send(`🔇 **${target.user.tag}** ha sido silenciado por **${timeArg}** por **${message.author.tag}**. Razón: ${reason}`);
+    }
 });
 
-// 8. MANEJO DE INTERACCIONES Y COMANDOS
+// 8. INTERACCIONES SLASH (/embed, /canalsetup, Autocompletado)
 client.on('interactionCreate', async interaction => {
-  
-  // Autocompletado de Colores
   if (interaction.isAutocomplete()) {
     const focusedValue = interaction.options.getFocused();
     const opcionesColor = [
@@ -141,7 +240,6 @@ client.on('interactionCreate', async interaction => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  // Ejecución de /embed
   if (interaction.commandName === 'embed') {
     const titulo = interaction.options.getString('titulo');
     const descripcion = interaction.options.getString('descripcion');
@@ -155,7 +253,6 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({ embeds: [embed] }).catch(() => {});
   }
 
-  // Ejecución de /canalsetup
   if (interaction.commandName === 'canalsetup') {
     const canal = interaction.options.getChannel('canal');
     saveLogChannel(interaction.guildId, canal.id);
