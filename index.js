@@ -25,7 +25,6 @@ http.createServer((req, res) => {
 const TOKEN = process.env.DISCORD_TOKEN; 
 const CLIENT_ID = process.env.CLIENT_ID; 
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '1528201242407342100'; 
-// OPCIONAL: Si quieres forzar la foto del bot por código, pon la URL de la imagen aquí.
 const BOT_AVATAR_URL = process.env.BOT_AVATAR_URL || ''; 
 
 if (!TOKEN || !CLIENT_ID) {
@@ -37,7 +36,7 @@ if (!TOKEN || !CLIENT_ID) {
 process.on('unhandledRejection', reason => console.error('[Anti-Crash]:', reason));
 process.on('uncaughtException', err => console.error('[Anti-Crash]:', err));
 
-// 4. BASE DE DATOS LOCAL DE SANCIONES (sanctions.json)
+// 4. BASE DE DATOS LOCAL DE SANCIONES
 const sanctionsFile = './sanctions.json';
 
 function getSanctions() {
@@ -75,7 +74,7 @@ function addSanction(guildId, userId, type, moderator, reason, duration = null) 
     return newSanction;
 }
 
-// FUNCIONES AUXILIARES DE TIEMPOS Y RESPUESTAS CON AUTO-ELIMINACIÓN (2 Segundos)
+// FUNCIONES AUXILIARES
 function parseDuration(timeStr) {
     if (!timeStr) return null;
     const timeMultipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
@@ -109,7 +108,7 @@ const userStickers = new Map();
 const userSpamWarns = new Map();    
 const userSpamMutes = new Map();    
 
-// OPCIONES DE COLORES DEFAULT PARA EMBEDS
+// OPCIONES DE COLORES DEFAULT
 const DEFAULT_COLORS = [
   { name: '🔵 Azul', value: '#0099FF' },
   { name: '🔴 Rojo', value: '#FF0000' },
@@ -133,7 +132,7 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
 
-// 6. REGISTRO DE COMANDOS SLASH
+// 6. REGISTRO DE COMANDOS SLASH (AHORA ACEPTA ARCHIVOS O URLS DE IMAGEN)
 const commands = [
   {
     name: 'help',
@@ -153,7 +152,8 @@ const commands = [
         required: false,
         autocomplete: true 
       },
-      { name: 'imagen', description: 'URL de la imagen o adjunta una foto', type: ApplicationCommandOptionType.Attachment, required: false },
+      { name: 'imagen_archivo', description: 'Adjunta un archivo de imagen directo', type: ApplicationCommandOptionType.Attachment, required: false },
+      { name: 'imagen_url', description: 'O pega el enlace/URL de una imagen (https://...)', type: ApplicationCommandOptionType.String, required: false },
       { name: 'canal', description: 'Canal donde se enviará (opcional)', type: ApplicationCommandOptionType.Channel, required: false }
     ]
   },
@@ -226,11 +226,14 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 client.once('clientReady', async () => {
   console.log(`Bot conectado como: ${client.user.tag}`);
 
-  // ACTUALIZACIÓN DE FOTO DE PERFIL DEL BOT EN TIEMPO REAL (Si está definida la variable)
-  if (BOT_AVATAR_URL) {
-    client.user.setAvatar(BOT_AVATAR_URL)
-      .then(() => console.log('[Avatar] Foto de perfil actualizada correctamente.'))
-      .catch(err => console.error('[Avatar] Error al actualizar la foto:', err));
+  // FOTO DEL BOT: INTENTA CAMBIARLA SI EXISTE 'BOT_AVATAR_URL'
+  if (BOT_AVATAR_URL && BOT_AVATAR_URL.startsWith('http')) {
+    try {
+      await client.user.setAvatar(BOT_AVATAR_URL);
+      console.log('[Avatar] Foto de perfil del bot cargada correctamente.');
+    } catch (err) {
+      console.error('[Avatar] No se pudo cambiar el avatar (posible Rate Limit o enlace roto):', err.message);
+    }
   }
 
   try {
@@ -244,14 +247,13 @@ client.once('clientReady', async () => {
   }
 });
 
-// FUNCION AUXILIAR PARA EL MODO HELP
 function buildHelpEmbed() {
   return new EmbedBuilder()
     .setTitle('📖 Guía de Comandos de Moderación')
     .setColor('#0099FF')
     .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
     .addFields(
-      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [canal]`', value: 'Crea y envía un embed personalizado con opción de foto.' },
+      { name: '🎨 `/embed <título> <descripción> [color] [imagen_archivo] [imagen_url] [canal]`', value: 'Crea un embed con imagen por subida directa o enlace.' },
       { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos: `10m`, `2h`, `1d`.' },
       { name: '🔊 `pibble unmute <@user|reply> [razón]`', value: 'Quita el silencio a un usuario.' },
       { name: '👢 `pibble kick <@user|reply> [razón]`', value: 'Expulsa a un usuario del servidor.' },
@@ -270,7 +272,6 @@ client.on('messageCreate', async (message) => {
 
     const isMod = message.member.permissions.has(PermissionFlagsBits.ManageMessages) || message.member.permissions.has(PermissionFlagsBits.Administrator);
 
-    // A) AUTOMODERACIÓN REFORZADA
     if (!isMod) {
         let violationType = null;
         const content = message.content || '';
@@ -354,7 +355,6 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // B) COMANDOS DE TEXTO CON PREFIX "pibble "
     if (!message.content.toLowerCase().startsWith('pibble ')) return;
 
     const args = message.content.slice(7).trim().split(/ +/);
@@ -503,7 +503,7 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// 8. INTERACCIONES DE AUTOCOMPLETE Y COMANDOS SLASH
+// 8. INTERACCIONES (AQUÍ SE CORRIGIÓ EL MANEJO DE IMÁGENES DE EMBED)
 client.on('interactionCreate', async interaction => {
 
   if (interaction.isAutocomplete()) {
@@ -540,7 +540,8 @@ client.on('interactionCreate', async interaction => {
     const titulo = options.getString('titulo');
     const descripcion = options.getString('descripcion');
     let colorInput = options.getString('color') || '#0099FF';
-    const imageAttachment = options.getAttachment('imagen');
+    const imageAttachment = options.getAttachment('imagen_archivo');
+    const imageUrl = options.getString('imagen_url');
     const targetChannel = options.getChannel('canal') || channel;
 
     if (colorInput && !colorInput.startsWith('#') && /^[0-9A-F]{6}$/i.test(colorInput)) {
@@ -553,15 +554,19 @@ client.on('interactionCreate', async interaction => {
       .setColor(colorInput)
       .setTimestamp();
 
+    // Setea la imagen dependiendo de si fue subida o por link
     if (imageAttachment) {
       embed.setImage(imageAttachment.url);
+    } else if (imageUrl && imageUrl.startsWith('http')) {
+      embed.setImage(imageUrl);
     }
 
     try {
       await targetChannel.send({ embeds: [embed] });
       await interaction.reply({ content: `✅ Embed enviado exitosamente a ${targetChannel}.`, ephemeral: true });
     } catch (e) {
-      await interaction.reply({ content: '❌ Error al enviar el embed. Verifica que el formato del color sea HEX o que el bot tenga permisos en ese canal.', ephemeral: true });
+      console.error(e);
+      await interaction.reply({ content: '❌ Error al enviar el embed. Revisa si la imagen/link es válida o los permisos del canal.', ephemeral: true });
     }
     return;
   }
@@ -679,7 +684,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 9. EVENTOS DE LOGS DE MENSAJES/IMÁGENES BORRADAS
+// 9. LOGS
 client.on('messageDelete', async (message) => {
     if (!message.guild || message.author?.bot) return;
 
