@@ -111,7 +111,7 @@ async function sendSanctionLog(guild, type, targetUser, moderatorTag, reason, du
         .setTitle(`📌 Registro de Sanción: ${type}`)
         .setColor(type === 'BAN' ? '#FF0000' : type === 'KICK' ? '#E67E22' : '#FFFF00')
         .addFields(
-            { name: 'Usuario Affected', value: `<@${targetUser.id}> (\`${targetUser.id}\`)`, inline: true },
+            { name: 'Usuario Afectado', value: `<@${targetUser.id}> (\`${targetUser.id}\`)`, inline: true },
             { name: 'Moderador', value: moderatorTag, inline: true },
             { name: 'Razón', value: reason || 'No especificada', inline: false }
         )
@@ -170,6 +170,13 @@ const commands = [
   {
     name: 'help',
     description: 'Muestra los comandos disponibles de moderación',
+  },
+  {
+    name: 'banana',
+    description: 'Mide la banana de un usuario',
+    options: [
+      { name: 'usuario', description: 'Usuario a medir (opcional)', type: ApplicationCommandOptionType.User, required: false }
+    ]
   },
   {
     name: 'embed',
@@ -280,11 +287,12 @@ client.once('clientReady', async () => {
 
 function buildHelpEmbed() {
   return new EmbedBuilder()
-    .setTitle('📖 Guía de Comandos de Moderación')
+    .setTitle('📖 Guía de Comandos del Bot')
     .setColor('#0099FF')
     .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
     .addFields(
-      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [imagen_url] [canal]`', value: 'Crea un embed con colores normales/pastel y soporte completo de fotos.' },
+      { name: '🍌 `pibble banana [@usuario]` (o `/banana`)', value: 'Mide la banana del usuario mencionado o la tuya.' },
+      { name: '🎨 `/embed <título> <descripción> [color] [imagen] [imagen_url] [canal]`', value: 'Crea un embed con colores normales/pastel y fotos.' },
       { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos: `10m`, `2h`, `1d`.' },
       { name: '🔊 `pibble unmute <@user|reply> [razón]`', value: 'Quita el silencio a un usuario.' },
       { name: '👢 `pibble kick <@user|reply> [razón]`', value: 'Expulsa a un usuario del servidor.' },
@@ -293,7 +301,7 @@ function buildHelpEmbed() {
       { name: '🧹 `pibble purge <cantidad>`', value: 'Elimina de 1 a 100 mensajes del canal actual.' },
       { name: '📜 `pibble hist <@user|ID>` (o `/hist`)', value: 'Muestra el historial de sanciones del usuario.' }
     )
-    .setFooter({ text: 'Sistema de Moderación Pibble' })
+    .setFooter({ text: 'Sistema Pibble' })
     .setTimestamp();
 }
 
@@ -389,15 +397,32 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift()?.toLowerCase();
 
-    const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist'];
+    const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist', 'banana'];
     if (!validCommands.includes(command)) return; 
 
-    if (!isMod) {
-        return replyAndAutoDelete(message, "Este comando es de administrador JJAJAJA, deja de intentar usarlo.");
-    }
-
+    // COMANDOS PÚBLICOS (PARA TODOS LOS USUARIOS)
     if (command === 'help') {
         return message.reply({ embeds: [buildHelpEmbed()] }).catch(() => {});
+    }
+
+    if (command === 'banana') {
+        const targetUser = message.mentions.users.first() || message.author;
+        const tamano = Math.floor(Math.random() * 32) + 1;
+
+        const embedBanana = new EmbedBuilder()
+            .setTitle('🍌 ¡El Bananómetro!')
+            .setDescription(`La banana de ${targetUser} mide **${tamano} cm** 🍌`)
+            .setColor('#FFE135')
+            .setImage('https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=600')
+            .setFooter({ text: 'Medición 100% científica' })
+            .setTimestamp();
+
+        return message.reply({ embeds: [embedBanana] });
+    }
+
+    // RESTRICCIÓN DE MODERACIÓN PARA LOS DEMÁS COMANDOS
+    if (!isMod) {
+        return replyAndAutoDelete(message, "Este comando es de administrador JJAJAJA, deja de intentar usarlo.");
     }
 
     if (command === 'purge') {
@@ -476,7 +501,6 @@ client.on('messageCreate', async (message) => {
 
         const sanction = addSanction(message.guild.id, targetMember.id, 'MUTE', message.author.tag, reason, timeArg);
         
-        // NO SE AUTODESTRUYE
         await message.channel.send(`🔇 **${targetMember.user.tag}** ha sido silenciado por **${timeArg}**. | Razón: ${reason} | ID: \`${sanction.id}\``);
         sendSanctionLog(message.guild, 'MUTE', targetMember.user, message.author.tag, reason, timeArg);
     }
@@ -506,7 +530,6 @@ client.on('messageCreate', async (message) => {
             await message.guild.members.ban(targetId, { reason });
             const sanction = addSanction(message.guild.id, targetId, 'BAN', message.author.tag, reason);
 
-            // NO SE AUTODESTRUYE
             await message.channel.send(`🔨 El usuario **${targetUser.tag}** (\`${targetId}\`) ha sido baneado. | Razón: ${reason} | ID: \`${sanction.id}\``);
             sendSanctionLog(message.guild, 'BAN', targetUser, message.author.tag, reason);
         } catch (e) {
@@ -542,13 +565,12 @@ client.on('messageCreate', async (message) => {
         await targetMember.kick(reason).catch(() => {});
         const sanction = addSanction(message.guild.id, targetMember.id, 'KICK', message.author.tag, reason);
 
-        // NO SE AUTODESTRUYE
         await message.channel.send(`👢 **${targetMember.user.tag}** ha sido expulsado. | Razón: ${reason} | ID: \`${sanction.id}\``);
         sendSanctionLog(message.guild, 'KICK', targetMember.user, message.author.tag, reason);
     }
 });
 
-// 8. INTERACCIONES SLASH (ARREGLO DEFINITIVO PARA FOTOS EN EMBED)
+// 8. INTERACCIONES SLASH
 client.on('interactionCreate', async interaction => {
 
   if (interaction.isAutocomplete()) {
@@ -577,11 +599,25 @@ client.on('interactionCreate', async interaction => {
     return interaction.reply({ embeds: [buildHelpEmbed()], ephemeral: true });
   }
 
+  if (commandName === 'banana') {
+    const targetUser = options.getUser('usuario') || user;
+    const tamano = Math.floor(Math.random() * 32) + 1;
+
+    const embedBanana = new EmbedBuilder()
+        .setTitle('🍌 ¡El Bananómetro!')
+        .setDescription(`La banana de ${targetUser} mide **${tamano} cm** 🍌`)
+        .setColor('#FFE135')
+        .setImage('https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=600')
+        .setFooter({ text: 'Medición 100% científica' })
+        .setTimestamp();
+
+    return interaction.reply({ embeds: [embedBanana] });
+  }
+
   if (!isMod) {
     return interaction.reply({ content: 'Este comando es de administrador JJAJAJA, deja de intentar usarlo.', ephemeral: true });
   }
 
-  // FIX DEFICITIVO DE FOTOS EN EMBED
   if (commandName === 'embed') {
     await interaction.deferReply({ ephemeral: true });
 
@@ -602,17 +638,14 @@ client.on('interactionCreate', async interaction => {
       .setColor(colorInput)
       .setTimestamp();
 
-    const payload = { embeds: [embed] };
-
-    // Solución del envío de fotos:
     if (imageAttachment) {
-      embed.setImage(imageAttachment.url); // Usamos la URL generada en el CDN directo de Discord
+      embed.setImage(imageAttachment.url);
     } else if (imageUrl && imageUrl.startsWith('http')) {
       embed.setImage(imageUrl);
     }
 
     try {
-      await targetChannel.send(payload);
+      await targetChannel.send({ embeds: [embed] });
       await interaction.editReply({ content: `✅ Embed enviado exitosamente a ${targetChannel}.` });
     } catch (e) {
       console.error("Error enviando embed:", e);
@@ -789,7 +822,7 @@ client.on('guildAuditLogEvent', async (auditLog, guild) => {
     const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
     if (!logChannel) return;
 
-    const { action, target, reason, changes } = auditLog;
+    const { action, target, reason } = auditLog;
     const embed = new EmbedBuilder().setTimestamp();
 
     const targetUser = target ? await client.users.fetch(target.id).catch(() => null) : null;
