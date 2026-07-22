@@ -74,7 +74,7 @@ function addSanction(guildId, userId, type, moderator, reason, duration = null) 
     return newSanction;
 }
 
-// 4.5. BASE DE DATOS LOCAL DE BESOS (GUARDA HASTA DESPUÉS DE REINICIAR)
+// 4.5. BASE DE DATOS LOCAL DE BESOS
 const kissesFile = './kisses.json';
 
 function getKissesData() {
@@ -102,9 +102,12 @@ function addKiss(user1Id, user2Id) {
     return data[pairKey];
 }
 
-// LISTA DE GIFS DE BESOS
+// LISTA DE GIFS DE BESOS (ACTUALIZADA)
 const KISS_GIFS = [
-  'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG45ZThieG96NzJ3bm9iZ3lkdTU2bWRwZWMyZmppNzVrc3ByaDg5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MQVpBqASxSlFu/giphy.gif'
+  'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG45ZThieG96NzJ3bm9iZ3lkdTU2bWRwZWMyZmppNzVrc3ByaDg5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MQVpBqASxSlFu/giphy.gif',
+  'https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVxZWxveHQxdnlnY3RtaXpuNGZueGZ0NXRzZGMyeTdkcDMxYWt4MCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zkppEMFvRX5FC/giphy.gif',
+  'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWFlM3V6OWl2MDE0Z3pueGVoanRyaWQ1dWd2NXFraXlyMTN2dXdjdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Mo122cd9G2xmKymanO/giphy.gif',
+  'https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3c2JieWk3eG0wOTRlYm1rcHIxNm1nbnNyZTBtOHZucnI4ZDNvaDc3OCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/KH1CTZtw1iP3W/giphy.gif'
 ];
 
 // FUNCIONES AUXILIARES
