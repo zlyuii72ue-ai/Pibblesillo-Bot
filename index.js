@@ -102,12 +102,12 @@ function addKiss(user1Id, user2Id) {
     return data[pairKey];
 }
 
-// LISTA DE GIFS DE BESOS (ACTUALIZADA)
+// LISTA DE GIFS DE BESOS
 const KISS_GIFS = [
   'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG45ZThieG96NzJ3bm9iZ3lkdTU2bWRwZWMyZmppNzVrc3ByaDg5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MQVpBqASxSlFu/giphy.gif',
   'https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVxZWxveHQxdnlnY3RtaXpuNGZueGZ0NXRzZGMyeTdkcDMxYWt4MCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zkppEMFvRX5FC/giphy.gif',
   'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWFlM3V6OWl2MDE0Z3pueGVoanRyaWQ1dWd2NXFraXlyMTN2dXdjdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Mo122cd9G2xmKymanO/giphy.gif',
-  'https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3c2JieWk3eG0wOTRlYm1rcHIxNm1nbnNyZTBtOHZucnI4ZDNvaDc3OCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/KH1CTZtw1iP3W/giphy.gif'
+  'https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3c2JieWk3eG0wOTRlYm1rcHIxNm1nbnNyZTBtOHZucnI4ZDNvaDc3OCZlcD12MV_naWZzX3NlYXJjaCZjdD1n/KH1CTZtw1iP3W/giphy.gif'
 ];
 
 // FUNCIONES AUXILIARES
@@ -138,7 +138,7 @@ async function sendAndAutoDelete(channel, content, delay = 2000) {
     }
 }
 
-// ENVIAR LOGS
+// ENVIAR LOGS DE SANCIÓN
 async function sendSanctionLog(guild, type, targetUser, moderatorTag, reason, duration = null) {
     const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
     if (!logChannel) return;
@@ -189,14 +189,15 @@ const ALL_COLORS = [
   { name: '🩶 Gris Pastel', value: '#E5E5E5' }
 ];
 
-// 5. CLIENTE DE DISCORD
+// 5. CLIENTE DE DISCORD (CON GuildVoiceStates HABILITADO)
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent, 
     GatewayIntentBits.GuildModeration,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates // Requerido para ver eventos de llamadas / call
   ],
   partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
@@ -801,7 +802,7 @@ client.on('interactionCreate', async interaction => {
     await targetMember.timeout(durationMs, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'MUTE', user.tag, reason, timeArg);
 
-    await channel.send(`🔇 **${targetUser.tag}** ha sido silenciado por **${timeArg}**. | Razón: ${reason} | ID: \`${sanction.id}\``);
+    await channel.send(``🔇 **${targetUser.tag}** ha sido silenciado por **${timeArg}**. | Razón: ${reason} | ID: \`${sanction.id}\``);
     sendSanctionLog(guild, 'MUTE', targetUser, user.tag, reason, timeArg);
     await interaction.reply({ content: 'Sanción aplicada.', ephemeral: true });
   }
@@ -872,7 +873,9 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// 9. AUDITORÍA DE BORRADO DE MENSAJES Y ACCIONES DE DISCORD
+// 9. AUDITORÍA DE EVENTOS EN CANALES Y USUARIOS
+
+// A) LOG DE MENSAJES BORRADOS
 client.on('messageDelete', async (message) => {
     if (!message.guild || message.author?.bot) return;
 
@@ -910,6 +913,86 @@ client.on('messageDelete', async (message) => {
     logChannel.send({ embeds: [embed], files: filesToSend }).catch(err => console.error("Error al enviar log de borrado:", err));
 });
 
+// B) LOG DE CAMBIOS DE ROLES Y RANGOS EN INTEGRANTES
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+    const logChannel = newMember.guild.channels.cache.get(LOG_CHANNEL_ID);
+    if (!logChannel) return;
+
+    const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
+    const removedRoles = oldMember.roles.cache.filter(role => !newMember.roles.cache.has(role.id));
+
+    if (addedRoles.size === 0 && removedRoles.size === 0) return;
+
+    const embed = new EmbedBuilder()
+        .setTitle('⚙️ Actualización de Roles')
+        .setColor('#3498DB')
+        .setThumbnail(newMember.user.displayAvatarURL({ dynamic: true, size: 256 }))
+        .addFields(
+            { name: 'Usuario', value: `${newMember.user.tag} (<@${newMember.id}>)`, inline: true },
+            { name: 'ID de Usuario', value: `\`${newMember.id}\``, inline: true }
+        )
+        .setTimestamp();
+
+    if (addedRoles.size > 0) {
+        embed.addFields({ name: '➕ Rol(es) Añadido(s)', value: addedRoles.map(r => `<@&${r.id}>`).join(', '), inline: false });
+    }
+
+    if (removedRoles.size > 0) {
+        embed.addFields({ name: '➖ Rol(es) Quitado(s)', value: removedRoles.map(r => `<@&${r.id}>`).join(', '), inline: false });
+    }
+
+    logChannel.send({ embeds: [embed] }).catch(err => console.error("Error enviando log de roles:", err));
+});
+
+// C) LOG DE CONEXIONES Y SALIDAS DE CALL / CANALES DE VOZ
+client.on('voiceStateUpdate', (oldState, newState) => {
+    const guild = newState.guild || oldState.guild;
+    const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
+    if (!logChannel) return;
+
+    const member = newState.member || oldState.member;
+    if (!member || member.user.bot) return;
+
+    const embed = new EmbedBuilder()
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+        .setTimestamp();
+
+    // Entró a una call
+    if (!oldState.channelId && newState.channelId) {
+        embed.setTitle('🔊 Entrada a Canal de Voz')
+             .setColor('#2ECC71')
+             .addFields(
+                 { name: 'Usuario', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+                 { name: 'Canal', value: `<#${newState.channelId}>`, inline: true }
+             );
+        return logChannel.send({ embeds: [embed] }).catch(() => {});
+    }
+
+    // Salió de una call
+    if (oldState.channelId && !newState.channelId) {
+        embed.setTitle('🔇 Salida de Canal de Voz')
+             .setColor('#E74C3C')
+             .addFields(
+                 { name: 'Usuario', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+                 { name: 'Canal', value: `<#${oldState.channelId}>`, inline: true }
+             );
+        return logChannel.send({ embeds: [embed] }).catch(() => {});
+    }
+
+    // Se cambió de call
+    if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+        embed.setTitle('🔄 Cambio de Canal de Voz')
+             .setColor('#F1C40F')
+             .addFields(
+                 { name: 'Usuario', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+                 { name: 'De', value: `<#${oldState.channelId}>`, inline: true },
+                 { name: 'A', value: `<#${newState.channelId}>`, inline: true }
+             );
+        return logChannel.send({ embeds: [embed] }).catch(() => {});
+    }
+});
+
+// D) AUDITORÍA DE BAN/KICK DE REGISTRO
 client.on('guildAuditLogEvent', async (auditLog, guild) => {
     const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
     if (!logChannel) return;
