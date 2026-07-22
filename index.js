@@ -90,7 +90,6 @@ function getKissesData() {
 
 function addKiss(user1Id, user2Id) {
     const data = getKissesData();
-    // Ordenamos los IDs alfabéticamente para que la clave sea la misma sin importar quién besó a quién
     const pairKey = [user1Id, user2Id].sort().join('_');
 
     data[pairKey] = (data[pairKey] || 0) + 1;
@@ -103,7 +102,7 @@ function addKiss(user1Id, user2Id) {
     return data[pairKey];
 }
 
-// LISTA DE GIFS PARA EL COMANDO KISS
+// GIFS ANIME DE BESOS
 const KISS_GIFS = [
   'https://media.tenor.com/gU212L_23q0AAAAC/anime-kiss.gif',
   'https://media.tenor.com/E62m3353v_AAAAAC/anime-kiss.gif',
@@ -140,7 +139,7 @@ async function sendAndAutoDelete(channel, content, delay = 2000) {
     }
 }
 
-// FUNCIÓN PARA ENVIAR LOGS AL CANAL DE SANCIÓN
+// ENVIAR LOGS
 async function sendSanctionLog(guild, type, targetUser, moderatorTag, reason, duration = null) {
     const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
     if (!logChannel) return;
@@ -446,7 +445,7 @@ client.on('messageCreate', async (message) => {
     const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist', 'banana', 'kiss'];
     if (!validCommands.includes(command)) return; 
 
-    // COMANDOS PÚBLICOS (PARA TODOS LOS USUARIOS)
+    // COMANDOS PÚBLICOS
     if (command === 'help') {
         return message.reply({ embeds: [buildHelpEmbed()] }).catch(() => {});
     }
@@ -483,24 +482,21 @@ client.on('messageCreate', async (message) => {
         }
 
         if (authorUser.id === targetUser.id) {
-            return message.reply('No te puedes besar a ti mismo, busca a alguien más jajaja 💋');
+            return message.reply('No te puedes besar a ti mismo, busca a alguien más jajaja');
         }
 
         const totalKisses = addKiss(authorUser.id, targetUser.id);
         const randomGif = KISS_GIFS[Math.floor(Math.random() * KISS_GIFS.length)];
 
         const embedKiss = new EmbedBuilder()
-            .setTitle('💋 ¡Un beso lleno de amor!')
-            .setDescription(`${authorUser} le dio un beso a ${targetUser} 💋\n\n✨ **¡Ya llevan ${totalKisses} beso(s) acumulado(s)!** ✨`)
+            .setDescription(`${authorUser} le dio un beso a ${targetUser}, llevan **${totalKisses}** besos acumulados!`)
             .setColor('#FF1493')
-            .setImage(randomGif)
-            .setFooter({ text: 'Demuéstrense el amor' })
-            .setTimestamp();
+            .setImage(randomGif);
 
         return message.reply({ embeds: [embedKiss] });
     }
 
-    // RESTRICCIÓN DE MODERACIÓN PARA LOS DEMÁS COMANDOS
+    // COMANDOS DE MODERACIÓN
     if (!isMod) {
         return replyAndAutoDelete(message, "Este comando es de administrador JJAJAJA, deja de intentar usarlo.");
     }
@@ -565,7 +561,6 @@ client.on('messageCreate', async (message) => {
         return replyAndAutoDelete(message, { embeds: [embed] });
     }
 
-    // COMANDOS PERMANENTES DE SANCIÓN (NO SE BORRAN DEL CANAL)
     if (command === 'mute') {
         if (!targetMember) return replyAndAutoDelete(message, 'Menciona a un usuario o responde a su mensaje.');
         if (!targetMember.moderatable) return replyAndAutoDelete(message, 'No se puede silenciar a este usuario.');
@@ -698,19 +693,16 @@ client.on('interactionCreate', async interaction => {
     const targetUser = options.getUser('usuario');
 
     if (user.id === targetUser.id) {
-      return interaction.reply({ content: 'No te puedes besar a ti mismo, busca a alguien más jajaja 💋', ephemeral: true });
+      return interaction.reply({ content: 'No te puedes besar a ti mismo, busca a alguien más jajaja', ephemeral: true });
     }
 
     const totalKisses = addKiss(user.id, targetUser.id);
     const randomGif = KISS_GIFS[Math.floor(Math.random() * KISS_GIFS.length)];
 
     const embedKiss = new EmbedBuilder()
-        .setTitle('💋 ¡Un beso lleno de amor!')
-        .setDescription(`${user} le dio un beso a ${targetUser} 💋\n\n✨ **¡Ya llevan ${totalKisses} beso(s) acumulado(s)!** ✨`)
+        .setDescription(`${user} le dio un beso a ${targetUser}, llevan **${totalKisses}** besos acumulados!`)
         .setColor('#FF1493')
-        .setImage(randomGif)
-        .setFooter({ text: 'Demuéstrense el amor' })
-        .setTimestamp();
+        .setImage(randomGif);
 
     return interaction.reply({ embeds: [embedKiss] });
   }
@@ -842,8 +834,8 @@ client.on('interactionCreate', async interaction => {
     await targetMember.kick(reason);
     const sanction = addSanction(guild.id, targetUser.id, 'KICK', user.tag, reason);
 
-    await channel.send(`👢 **${targetUser.tag}** ha sido expulsado. | Razón: ${reason} | ID: \`${sanction.id}\``);
-    sendSanctionLog(guild, 'KICK', targetUser, user.tag, reason);
+    await channel.send(`👢 **${targetMember.user.tag}** ha sido expulsado. | Razón: ${reason} | ID: \`${sanction.id}\``);
+    sendSanctionLog(guild, 'KICK', targetMember.user, user.tag, reason);
     await interaction.reply({ content: 'Usuario expulsado.', ephemeral: true });
   }
 
