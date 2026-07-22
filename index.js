@@ -74,6 +74,44 @@ function addSanction(guildId, userId, type, moderator, reason, duration = null) 
     return newSanction;
 }
 
+// 4.5. BASE DE DATOS LOCAL DE BESOS
+const kissesFile = './kisses.json';
+
+function getKissesData() {
+    try {
+        if (fs.existsSync(kissesFile)) {
+            return JSON.parse(fs.readFileSync(kissesFile, 'utf8'));
+        }
+    } catch (e) {
+        console.error("Error al leer archivo de besos:", e);
+    }
+    return {};
+}
+
+function addKiss(user1Id, user2Id) {
+    const data = getKissesData();
+    // Ordenamos los IDs alfabéticamente para que la clave sea la misma sin importar quién besó a quién
+    const pairKey = [user1Id, user2Id].sort().join('_');
+
+    data[pairKey] = (data[pairKey] || 0) + 1;
+
+    try {
+        fs.writeFileSync(kissesFile, JSON.stringify(data, null, 2));
+    } catch (e) {
+        console.error("Error al guardar el beso:", e);
+    }
+    return data[pairKey];
+}
+
+// LISTA DE GIFS PARA EL COMANDO KISS
+const KISS_GIFS = [
+  'https://media.tenor.com/gU212L_23q0AAAAC/anime-kiss.gif',
+  'https://media.tenor.com/E62m3353v_AAAAAC/anime-kiss.gif',
+  'https://media.tenor.com/v4P02E9q4f4AAAAC/kiss-anime.gif',
+  'https://media.tenor.com/f_Y7C70w50AAAAAC/anime-kiss-cheek.gif',
+  'https://media.tenor.com/wDY2Lwfapw4AAAAC/anime-kiss.gif'
+];
+
 // FUNCIONES AUXILIARES
 function parseDuration(timeStr) {
     if (!timeStr) return null;
@@ -169,13 +207,20 @@ const client = new Client({
 const commands = [
   {
     name: 'help',
-    description: 'Muestra los comandos disponibles de moderación',
+    description: 'Muestra los comandos disponibles de moderación y diversión',
   },
   {
     name: 'banana',
     description: 'Mide la banana de un usuario',
     options: [
       { name: 'usuario', description: 'Usuario a medir (opcional)', type: ApplicationCommandOptionType.User, required: false }
+    ]
+  },
+  {
+    name: 'kiss',
+    description: 'Dale un beso a un usuario y guarda el historial',
+    options: [
+      { name: 'usuario', description: 'Usuario a quien besar', type: ApplicationCommandOptionType.User, required: true }
     ]
   },
   {
@@ -291,6 +336,7 @@ function buildHelpEmbed() {
     .setColor('#0099FF')
     .setDescription('Puedes usar estos comandos con el prefijo `pibble <comando>` o mediante `/comando`.')
     .addFields(
+      { name: '💋 `pibble kiss @usuario` (o `/kiss`)', value: 'Dale un beso a alguien. ¡Lleva la cuenta de besos en total!' },
       { name: '🍌 `pibble banana [@usuario]` (o `/banana`)', value: 'Mide la banana del usuario mencionado o la tuya.' },
       { name: '🎨 `/embed <título> <descripción> [color] [imagen] [imagen_url] [canal]`', value: 'Crea un embed con colores normales/pastel y fotos.' },
       { name: '🔇 `pibble mute <@user|reply> <tiempo> [razón]`', value: 'Silencia a un usuario. Ejemplos: `10m`, `2h`, `1d`.' },
@@ -397,7 +443,7 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(7).trim().split(/ +/);
     const command = args.shift()?.toLowerCase();
 
-    const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist', 'banana'];
+    const validCommands = ['help', 'mute', 'unmute', 'kick', 'ban', 'unban', 'purge', 'hist', 'banana', 'kiss'];
     if (!validCommands.includes(command)) return; 
 
     // COMANDOS PÚBLICOS (PARA TODOS LOS USUARIOS)
@@ -418,6 +464,40 @@ client.on('messageCreate', async (message) => {
             .setTimestamp();
 
         return message.reply({ embeds: [embedBanana] });
+    }
+
+    if (command === 'kiss') {
+        const mentions = Array.from(message.mentions.users.values());
+        let authorUser = message.author;
+        let targetUser = null;
+
+        if (mentions.length >= 2) {
+            authorUser = mentions[0];
+            targetUser = mentions[1];
+        } else if (mentions.length === 1) {
+            targetUser = mentions[0];
+        }
+
+        if (!targetUser) {
+            return message.reply('Menciona a la persona que quieres besar. Ejemplo: `pibble kiss @usuario`');
+        }
+
+        if (authorUser.id === targetUser.id) {
+            return message.reply('No te puedes besar a ti mismo, busca a alguien más jajaja 💋');
+        }
+
+        const totalKisses = addKiss(authorUser.id, targetUser.id);
+        const randomGif = KISS_GIFS[Math.floor(Math.random() * KISS_GIFS.length)];
+
+        const embedKiss = new EmbedBuilder()
+            .setTitle('💋 ¡Un beso lleno de amor!')
+            .setDescription(`${authorUser} le dio un beso a ${targetUser} 💋\n\n✨ **¡Ya llevan ${totalKisses} beso(s) acumulado(s)!** ✨`)
+            .setColor('#FF1493')
+            .setImage(randomGif)
+            .setFooter({ text: 'Demuéstrense el amor' })
+            .setTimestamp();
+
+        return message.reply({ embeds: [embedKiss] });
     }
 
     // RESTRICCIÓN DE MODERACIÓN PARA LOS DEMÁS COMANDOS
@@ -612,6 +692,27 @@ client.on('interactionCreate', async interaction => {
         .setTimestamp();
 
     return interaction.reply({ embeds: [embedBanana] });
+  }
+
+  if (commandName === 'kiss') {
+    const targetUser = options.getUser('usuario');
+
+    if (user.id === targetUser.id) {
+      return interaction.reply({ content: 'No te puedes besar a ti mismo, busca a alguien más jajaja 💋', ephemeral: true });
+    }
+
+    const totalKisses = addKiss(user.id, targetUser.id);
+    const randomGif = KISS_GIFS[Math.floor(Math.random() * KISS_GIFS.length)];
+
+    const embedKiss = new EmbedBuilder()
+        .setTitle('💋 ¡Un beso lleno de amor!')
+        .setDescription(`${user} le dio un beso a ${targetUser} 💋\n\n✨ **¡Ya llevan ${totalKisses} beso(s) acumulado(s)!** ✨`)
+        .setColor('#FF1493')
+        .setImage(randomGif)
+        .setFooter({ text: 'Demuéstrense el amor' })
+        .setTimestamp();
+
+    return interaction.reply({ embeds: [embedKiss] });
   }
 
   if (!isMod) {
