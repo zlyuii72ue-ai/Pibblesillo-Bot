@@ -105,7 +105,7 @@ function addKiss(user1Id, user2Id) {
 // LISTA DE GIFS DE BESOS
 const KISS_GIFS = [
   'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG45ZThieG96NzJ3bm9iZ3lkdTU2bWRwZWMyZmppNzVrc3ByaDg5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MQVpBqASxSlFu/giphy.gif',
-  'https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVxZWxveHQxdnlnY3RtaXpuNGZueGZ0NXRzZGMyeTdkcDMxYWt4MCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zkppEMFvRX5FC/giphy.gif',
+  'https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExaWVxZWxveHQxdnlnY3RtaXpuNGZueGZ0NXRzZGMyeTdkpDMxYWt4MCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/zkppEMFvRX5FC/giphy.gif',
   'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcWFlM3V6OWl2MDE0Z3pueGVoanRyaWQ1dWd2NXFraXlyMTN2dXdjdSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/Mo122cd9G2xmKymanO/giphy.gif',
   'https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3c2JieWk3eG0wOTRlYm1rcHIxNm1nbnNyZTBtOHZucnI4ZDNvaDc3OCZlcD12MV_naWZzX3NlYXJjaCZjdD1n/KH1CTZtw1iP3W/giphy.gif'
 ];
@@ -159,6 +159,43 @@ async function sendSanctionLog(guild, type, targetUser, moderatorTag, reason, du
     logChannel.send({ embeds: [embed] }).catch(err => console.error("Error enviando log de sanción:", err));
 }
 
+// LOG DE MENSAJE BORRADO POR AUTOMOD
+async function sendAutoModDeleteLog(message, reason) {
+    const logChannel = message.guild.channels.cache.get(LOG_CHANNEL_ID);
+    if (!logChannel) return;
+
+    const author = message.author;
+    const member = message.member;
+
+    const embed = new EmbedBuilder()
+        .setTitle('🚨 Mensaje Eliminado por Auto-Mod')
+        .setColor('#FF0000')
+        .setThumbnail(author.displayAvatarURL({ dynamic: true, size: 256 }))
+        .addFields(
+            { name: 'Usuario', value: `${author.tag} (<@${author.id}>)`, inline: true },
+            { name: 'Nombre', value: `${member ? member.displayName : author.username}`, inline: true },
+            { name: 'ID', value: `\`${author.id}\``, inline: true },
+            { name: 'Canal', value: `<#${message.channel.id}>`, inline: false },
+            { name: 'Motivo', value: `**${reason}**`, inline: false },
+            { name: 'Contenido Eliminado', value: message.content || '*(Sin contenido de texto / Sticker)*' }
+        )
+        .setTimestamp();
+
+    const filesToSend = [];
+
+    if (message.attachments.size > 0) {
+        const attachment = message.attachments.first();
+        const file = new AttachmentBuilder(attachment.url, { name: attachment.name });
+        filesToSend.push(file);
+
+        if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+            embed.setImage(`attachment://${attachment.name}`);
+        }
+    }
+
+    logChannel.send({ embeds: [embed], files: filesToSend }).catch(err => console.error("Error al enviar log de borrado de automod:", err));
+}
+
 // MAPAS ANTI-SPAM
 const userMessages = new Map();     
 const userStickers = new Map();     
@@ -189,7 +226,7 @@ const ALL_COLORS = [
   { name: '🩶 Gris Pastel', value: '#E5E5E5' }
 ];
 
-// 5. CLIENTE DE DISCORD (CON GuildVoiceStates HABILITADO)
+// 5. CLIENTE DE DISCORD
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,
@@ -197,7 +234,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent, 
     GatewayIntentBits.GuildModeration,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildVoiceStates // Requerido para ver eventos de llamadas / call
+    GatewayIntentBits.GuildVoiceStates
   ],
   partials: [Partials.Message, Partials.Channel, Partials.User] 
 });
@@ -411,7 +448,9 @@ client.on('messageCreate', async (message) => {
         }
 
         if (violationType) {
+            // Borra el mensaje y envía registro de log
             await message.delete().catch(() => {});
+            sendAutoModDeleteLog(message, violationType);
 
             const currentWarns = (userSpamWarns.get(userId) || 0) + 1;
             userSpamWarns.set(userId, currentWarns);
@@ -802,7 +841,7 @@ client.on('interactionCreate', async interaction => {
     await targetMember.timeout(durationMs, reason);
     const sanction = addSanction(guild.id, targetUser.id, 'MUTE', user.tag, reason, timeArg);
 
-    await channel.send(``🔇 **${targetUser.tag}** ha sido silenciado por **${timeArg}**. | Razón: ${reason} | ID: \`${sanction.id}\``);
+    await channel.send(`🔇 **${targetUser.tag}** ha sido silenciado por **${timeArg}**. | Razón: ${reason} | ID: \`${sanction.id}\``);
     sendSanctionLog(guild, 'MUTE', targetUser, user.tag, reason, timeArg);
     await interaction.reply({ content: 'Sanción aplicada.', ephemeral: true });
   }
@@ -875,7 +914,7 @@ client.on('interactionCreate', async interaction => {
 
 // 9. AUDITORÍA DE EVENTOS EN CANALES Y USUARIOS
 
-// A) LOG DE MENSAJES BORRADOS
+// A) LOG DE MENSAJES BORRADOS POR USUARIOS
 client.on('messageDelete', async (message) => {
     if (!message.guild || message.author?.bot) return;
 
@@ -886,7 +925,7 @@ client.on('messageDelete', async (message) => {
     const member = message.member;
 
     const embed = new EmbedBuilder()
-        .setTitle('Mensaje / Imagen Borrada')
+        .setTitle('🗑️ Mensaje / Imagen Borrada')
         .setColor('#FF0000')
         .setThumbnail(author.displayAvatarURL({ dynamic: true, size: 256 }))
         .addFields(
