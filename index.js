@@ -74,7 +74,7 @@ function addSanction(guildId, userId, type, moderator, reason, duration = null) 
     return newSanction;
 }
 
-// 4.5. BASE DE DATOS LOCAL DE BESOS
+// 4.5. BASE DE DATOS LOCAL DE BESOS (GUARDA HASTA DESPUÉS DE REINICIAR)
 const kissesFile = './kisses.json';
 
 function getKissesData() {
@@ -102,14 +102,9 @@ function addKiss(user1Id, user2Id) {
     return data[pairKey];
 }
 
-// GIFS ANIME DE BESOS
+// LISTA DE GIFS DE BESOS
 const KISS_GIFS = [
-  'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG45ZThieG96NzJ3bm9iZ3lkdTU2bWRwZWMyZmppNzVrc3ByaDg5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MQVpBqASxSlFu/giphy.gif',
-  'https://media.tenor.com/gU212L_23q0AAAAC/anime-kiss.gif',
-  'https://media.tenor.com/E62m3353v_AAAAAC/anime-kiss.gif',
-  'https://media.tenor.com/v4P02E9q4f4AAAAC/kiss-anime.gif',
-  'https://media.tenor.com/f_Y7C70w50AAAAAC/anime-kiss-cheek.gif',
-  'https://media.tenor.com/wDY2Lwfapw4AAAAC/anime-kiss.gif'
+  'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG45ZThieG96NzJ3bm9iZ3lkdTU2bWRwZWMyZmppNzVrc3ByaDg5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MQVpBqASxSlFu/giphy.gif'
 ];
 
 // FUNCIONES AUXILIARES
