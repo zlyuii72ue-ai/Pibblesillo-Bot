@@ -104,6 +104,7 @@ function addKiss(user1Id, user2Id) {
 
 // GIFS ANIME DE BESOS
 const KISS_GIFS = [
+  'https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExcG45ZThieG96NzJ3bm9iZ3lkdTU2bWRwZWMyZmppNzVrc3ByaDg5aSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/MQVpBqASxSlFu/giphy.gif',
   'https://media.tenor.com/gU212L_23q0AAAAC/anime-kiss.gif',
   'https://media.tenor.com/E62m3353v_AAAAAC/anime-kiss.gif',
   'https://media.tenor.com/v4P02E9q4f4AAAAC/kiss-anime.gif',
@@ -834,7 +835,7 @@ client.on('interactionCreate', async interaction => {
     await targetMember.kick(reason);
     const sanction = addSanction(guild.id, targetUser.id, 'KICK', user.tag, reason);
 
-    await channel.send(`👢 **${targetMember.user.tag}** ha sido expulsado. | Razón: ${reason} | ID: \`${sanction.id}\``);
+    await channel.send(`👢 **${targetUser.tag}** ha sido expulsado. | Razón: ${reason} | ID: \`${sanction.id}\``);
     sendSanctionLog(guild, 'KICK', targetMember.user, user.tag, reason);
     await interaction.reply({ content: 'Usuario expulsado.', ephemeral: true });
   }
