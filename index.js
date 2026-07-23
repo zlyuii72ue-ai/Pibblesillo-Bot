@@ -27,6 +27,12 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID || '1528201242407342100'; 
 const BOT_AVATAR_URL = process.env.BOT_AVATAR_URL || ''; 
 
+// CANALES DONDE SÍ SE PERMITEN ENLACES
+const ALLOWED_LINK_CHANNELS = [
+  '1529046826421059657',
+  '1529046681960841337'
+];
+
 if (!TOKEN || !CLIENT_ID) {
     console.error("ERROR: Agrega DISCORD_TOKEN y CLIENT_ID en las variables.");
     process.exit(1);
@@ -422,7 +428,8 @@ client.on('messageCreate', async (message) => {
             if (recentStamps.length > 3) violationType = 'Flood de mensajes rápidos / Spam de envío';
         }
 
-        if (!violationType) {
+        // VALIDACIÓN DE ENLACES (SOLO SI EL CANAL NO ESTÁ EN LA LISTA PERMITIDA)
+        if (!violationType && !ALLOWED_LINK_CHANNELS.includes(message.channel.id)) {
             const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/gi;
             const linksFound = content.match(linkRegex);
             if (linksFound) {
